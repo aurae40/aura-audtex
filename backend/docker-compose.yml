@@ -1,0 +1,22 @@
+services:
+  transcriber:
+    build: .
+    container_name: aura-transcriber
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    # Optional GPU passthrough: uncomment below for NVIDIA container runtime
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  hf_cache:

@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: aura-transcriber
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python server.py"
+    plan: standard
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9

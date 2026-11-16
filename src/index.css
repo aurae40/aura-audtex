@@ -1,0 +1,530 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --accent: #d97706;
+    --accent-glow: rgba(217, 119, 6, 0.4);
+    --chassis-bg: #0d0c0b;
+    --chassis-border: #262320;
+    --paper-bg: #fcf9f2;
+    --paper-text: #1c1917;
+    --paper-border: #e8ddc8;
+    --highlight-bg: #fde047;
+    --highlight-text: #1a1610;
+    --ribbon-color: #991b1b;
+    --app-bg: #e7e0d5;
+    --app-surface: #f7f3eb;
+    --app-panel: #fffaf0;
+    --app-border: #d7cbb9;
+    --app-text: #292421;
+    --app-muted: #756b61;
+    --app-input: #fffdf8;
+    --app-overlay: rgba(41, 36, 33, 0.42);
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    min-height: 100dvh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    position: fixed;
+    inset: 0;
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #root {
+    width: 100%;
+    height: 100%;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* App-wide appearance system. The reader, player, panels and modals share the
+   same tokens so Day and Nocturnal modes are complete product themes. */
+html.dark {
+  --app-bg: #0d0c0b;
+  --app-surface: #131210;
+  --app-panel: #1c1a17;
+  --app-border: #38332d;
+  --app-text: #f5f5f4;
+  --app-muted: #a8a29e;
+  --app-input: #211f1c;
+  --app-overlay: rgba(0, 0, 0, 0.78);
+}
+
+.theme-shell { background-color: var(--app-bg) !important; color: var(--app-text); }
+.theme-header, .theme-surface { background-color: var(--app-surface) !important; color: var(--app-text) !important; }
+.theme-overlay { background-color: var(--app-overlay) !important; }
+.theme-modal { background-color: var(--app-panel) !important; border-color: var(--app-border) !important; color: var(--app-text) !important; }
+.theme-surface .bg-stone-900, .theme-surface .bg-stone-950, .theme-surface .bg-\[\#100e0c\], .theme-surface .bg-\[\#090807\], .theme-modal .bg-stone-900, .theme-modal .bg-stone-950, .theme-modal .bg-black\/40 {
+  background-color: var(--app-panel) !important;
+}
+.theme-surface .border-stone-800, .theme-surface .border-white\/10, .theme-surface .border-white\/5, .theme-modal .border-white\/10, .theme-modal .border-white\/15 {
+  border-color: var(--app-border) !important;
+}
+/* Universal Light Mode Text Contrast: Never white-on-white text when dark mode is OFF */
+html:not(.dark) .theme-header .text-stone-100,
+html:not(.dark) .theme-header .text-stone-200,
+html:not(.dark) .theme-surface .text-stone-100,
+html:not(.dark) .theme-surface .text-stone-200,
+html:not(.dark) .theme-surface .text-stone-300,
+html:not(.dark) .theme-modal .text-stone-100,
+html:not(.dark) .theme-modal .text-stone-200,
+html:not(.dark) .theme-modal .text-stone-300,
+html:not(.dark) .glass-panel .text-stone-100,
+html:not(.dark) .glass-panel .text-stone-200,
+html:not(.dark) .glass-panel .text-stone-300,
+html:not(.dark) .paper-sheet .text-stone-100,
+html:not(.dark) .paper-sheet .text-stone-200,
+html:not(.dark) .paper-sheet .text-stone-300 {
+  color: #1c1917 !important;
+}
+
+html:not(.dark) .theme-header .text-stone-400,
+html:not(.dark) .theme-surface .text-stone-400,
+html:not(.dark) .theme-surface .text-stone-500,
+html:not(.dark) .theme-modal .text-stone-400,
+html:not(.dark) .theme-modal .text-stone-500,
+html:not(.dark) .glass-panel .text-stone-400,
+html:not(.dark) .paper-sheet .text-stone-400,
+html:not(.dark) .paper-sheet .text-stone-500 {
+  color: #57534e !important;
+}
+
+html:not(.dark) .glass-panel {
+  background: color-mix(in srgb, var(--app-surface) 95%, transparent) !important;
+  border-top-color: rgba(0, 0, 0, 0.1) !important;
+  color: #1c1917 !important;
+}
+
+html:not(.dark) .glass-panel .hover\:text-white:hover,
+html:not(.dark) .glass-panel .hover\:text-stone-200:hover,
+html:not(.dark) .theme-header .hover\:text-white:hover,
+html:not(.dark) .theme-surface .hover\:text-white:hover {
+  color: #000000 !important;
+}
+
+html:not(.dark) .apple-btn-secondary {
+  background: rgba(0, 0, 0, 0.05) !important;
+  color: #1c1917 !important;
+  border-color: rgba(0, 0, 0, 0.14) !important;
+}
+
+html:not(.dark) .apple-btn-secondary:hover {
+  background: rgba(0, 0, 0, 0.09) !important;
+  color: #000000 !important;
+  border-color: rgba(0, 0, 0, 0.22) !important;
+}
+
+html:not(.dark) .theme-surface input, html:not(.dark) .theme-surface textarea, html:not(.dark) .theme-modal input, html:not(.dark) .theme-modal textarea {
+  background-color: var(--app-input) !important;
+  color: var(--app-text) !important;
+  border-color: var(--app-border) !important;
+}
+
+/* Safe Area Inset Classes - Comfortably Lowered for Notches, Camera Cutouts & Fullscreen */
+.pt-safe {
+  padding-top: max(44px, env(safe-area-inset-top, 44px));
+}
+
+@media (min-width: 768px) {
+  .pt-safe {
+    padding-top: max(12px, env(safe-area-inset-top, 12px));
+  }
+}
+
+:fullscreen .pt-safe,
+:-webkit-full-screen .pt-safe {
+  padding-top: max(48px, env(safe-area-inset-top, 48px));
+}
+
+.pb-safe {
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+}
+
+@media (min-width: 768px) {
+  .pb-safe {
+    padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
+  }
+}
+
+.font-book {
+  font-family: 'Lora', Georgia, serif;
+}
+
+.font-title {
+  font-family: 'Cinzel', serif;
+}
+
+.font-ui {
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', system-ui, sans-serif;
+}
+
+/* Custom Paper Texture */
+.paper-sheet {
+  background-color: var(--paper-bg);
+  background-image: 
+    radial-gradient(rgba(0, 0, 0, 0.07) 0.75px, transparent 0.75px),
+    linear-gradient(180deg, var(--paper-bg) 0%, rgba(0, 0, 0, 0.03) 100%);
+  background-size: 16px 16px, 100% 100%;
+  color: var(--paper-text);
+  box-shadow: inset 0 0 35px rgba(180, 140, 90, 0.12);
+  transition: background-color 0.4s ease, color 0.4s ease;
+}
+
+/* Dark Mode Nocturnal Canvas Overrides */
+html.dark .paper-sheet {
+  background-color: var(--paper-bg);
+  background-image: 
+    radial-gradient(rgba(255, 255, 255, 0.04) 0.75px, transparent 0.75px),
+    linear-gradient(180deg, var(--paper-bg) 0%, rgba(0, 0, 0, 0.25) 100%);
+  color: var(--paper-text);
+  box-shadow: inset 0 0 45px rgba(0, 0, 0, 0.6);
+}
+
+html.dark .apple-btn-paper {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e7e5e4;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+html.dark .apple-btn-paper:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+/* Word Highlighting with Soft Gold Glow */
+.word-active {
+  background: var(--highlight-bg);
+  color: var(--highlight-text);
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 1px 4px;
+  box-shadow: 0 2px 8px var(--accent-glow);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Mobile Frame & Device Styling - Edgeless Floating Glass Viewport */
+.iphone-frame {
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.7), 0 0 80px rgba(0, 0, 0, 0.4);
+  background: var(--chassis-bg);
+  transition: all 0.4s ease;
+}
+
+/* Modern Edgeless Glassmorphism Player Bar */
+.glass-panel {
+  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border-top: none !important;
+  box-shadow: 0 -12px 36px -8px rgba(0, 0, 0, 0.45);
+}
+
+/* ========================================================
+   APPLE HUMAN INTERFACE BUTTONS (Consistent & Curated)
+   ======================================================== */
+
+/* Primary Apple Action Button (Filled Accent) */
+.apple-btn-primary {
+  background: var(--accent);
+  color: #000000;
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: -0.01em;
+  border-radius: 9999px;
+  padding: 6px 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 2px 10px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+.apple-btn-primary:hover {
+  filter: brightness(1.08);
+  transform: translateY(-0.5px);
+}
+.apple-btn-primary:active {
+  transform: scale(0.96);
+  filter: brightness(0.95);
+}
+
+/* Secondary Apple Frosted Glass Capsule */
+.apple-btn-secondary {
+  background: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #f5f5f4;
+  font-weight: 500;
+  font-size: 11.5px;
+  letter-spacing: -0.01em;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+  padding: 5px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.18);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+.apple-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), inset 0 1px 1.5px rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+.apple-btn-secondary:active {
+  transform: scale(0.94);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Ghost Apple Button (Subtle Toolbar Item) */
+.apple-btn-ghost {
+  color: #a8a29e;
+  font-weight: 500;
+  font-size: 11px;
+  border-radius: 9999px;
+  padding: 5px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.apple-btn-ghost:hover {
+  color: #fafaf9;
+  background: rgba(255, 255, 255, 0.08);
+}
+.apple-btn-ghost:active {
+  transform: scale(0.96);
+}
+
+/* Apple Light Canvas Pill Button (For on-parchment buttons) */
+.apple-btn-paper {
+  background: rgba(0, 0, 0, 0.05);
+  color: #292524;
+  font-weight: 600;
+  font-size: 11px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 9999px;
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+.apple-btn-paper:hover {
+  background: rgba(0, 0, 0, 0.09);
+  border-color: rgba(0, 0, 0, 0.18);
+  color: #0c0a09;
+}
+.apple-btn-paper:active {
+  transform: scale(0.96);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(180, 140, 90, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(180, 140, 90, 0.6);
+}
+
+/* ========================================================
+   HYPER-EXAGGERATED AURA 'u' INTERACTIVE POPOUT & BULGE
+   ======================================================== */
+@keyframes aura-hyper-bulge {
+  0% {
+    transform: scale(1) translateY(0);
+    filter: drop-shadow(0 0 2px var(--accent));
+  }
+  25% {
+    transform: scale(2.65, 1.85) translateY(-12px);
+    filter: drop-shadow(0 0 16px var(--accent)) drop-shadow(0 0 32px var(--accent));
+  }
+  50% {
+    transform: scale(1.95, 2.5) translateY(-9px);
+    filter: drop-shadow(0 0 20px var(--accent)) drop-shadow(0 0 40px var(--accent));
+  }
+  75% {
+    transform: scale(2.4, 2.1) translateY(-9px);
+    filter: drop-shadow(0 0 18px var(--accent)) drop-shadow(0 0 36px var(--accent));
+  }
+  100% {
+    transform: scale(2.3) translateY(-9px);
+    filter: drop-shadow(0 0 18px var(--accent)) drop-shadow(0 0 36px var(--accent));
+  }
+}
+
+.aura-u-interactive {
+  display: inline-block;
+  cursor: pointer;
+  position: relative;
+  transform-origin: 50% 70%;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.aura-u-interactive:hover,
+.group\/aura:hover .aura-u-interactive {
+  animation: aura-hyper-bulge 0.65s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  z-index: 50;
+  margin-left: 6px;
+  margin-right: 6px;
+}
+
+.aura-u-interactive:active {
+  transform: scale(0.85) translateY(2px) !important;
+  transition-duration: 0.08s;
+}
+
+/* Surrounding letters parting to give space to the exaggerated bulge */
+.aura-letter-a {
+  display: inline-block;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.group\/aura:hover .aura-letter-a {
+  transform: translateX(-4px) scale(0.95);
+}
+
+.aura-letter-ra {
+  display: inline-block;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.group\/aura:hover .aura-letter-ra {
+  transform: translateX(4px) scale(0.95);
+}
+
+/* Audio bars dancing in logo when AuRA is hovered */
+@keyframes aura-bar-dance {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(1.85); }
+}
+.group\/aura:hover .aura-bar-1 {
+  animation: aura-bar-dance 0.4s ease infinite;
+}
+.group\/aura:hover .aura-bar-2 {
+  animation: aura-bar-dance 0.4s ease infinite 0.15s;
+}
+.group\/aura:hover .aura-bar-3 {
+  animation: aura-bar-dance 0.4s ease infinite 0.3s;
+}
+
+/* ========================================================
+   HEADPHONE SHAKABLE WOBBLE & SONIC ANIMATIONS
+   ======================================================== */
+@keyframes headphone-shake {
+  0% {
+    transform: rotate(0deg) scale(1) translateY(0);
+  }
+  15% {
+    transform: rotate(-10deg) scale(1.08) translateY(-4px);
+  }
+  30% {
+    transform: rotate(8deg) scale(1.1) translateY(-6px);
+  }
+  45% {
+    transform: rotate(-7deg) scale(1.12) translateY(-7px);
+  }
+  60% {
+    transform: rotate(6deg) scale(1.1) translateY(-5px);
+  }
+  75% {
+    transform: rotate(-4deg) scale(1.06) translateY(-3px);
+  }
+  90% {
+    transform: rotate(2deg) scale(1.03) translateY(-1px);
+  }
+  100% {
+    transform: rotate(0deg) scale(1.05) translateY(-3px);
+  }
+}
+
+.animate-headphone-shake {
+  animation: headphone-shake 0.85s ease-in-out infinite alternate;
+  transform-origin: 100px 80px;
+}
+
+@keyframes cord-wave {
+  0%, 100% {
+    transform: skewX(0deg) scaleY(1);
+  }
+  25% {
+    transform: skewX(-5deg) scaleY(1.03);
+  }
+  50% {
+    transform: skewX(5deg) scaleY(0.97);
+  }
+  75% {
+    transform: skewX(-3deg) scaleY(1.02);
+  }
+}
+
+.animate-cord-wave {
+  animation: cord-wave 0.85s ease-in-out infinite;
+}
+
+/* ========================================================
+   SOVEREIGN DANCING COUNTRY FONT & DYNAMIC ISLAND
+   ======================================================== */
+@keyframes country-letter-dance {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  20% {
+    transform: translateY(-3px) scale(1.12);
+  }
+  40% {
+    transform: translateY(-0.8px) scale(1.04);
+  }
+  60% {
+    transform: translateY(1.8px) scale(0.96);
+  }
+  80% {
+    transform: translateY(0.4px) scale(1.02);
+  }
+}
+
+.country-letter-dance {
+  display: inline-block;
+  animation: country-letter-dance 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  transform-origin: center bottom;
+  will-change: transform;
+}
+
+.group\/island:hover .country-letter-dance {
+  animation-duration: 0.75s;
+  animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes island-breathe {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.08);
+  }
+  50% {
+    box-shadow: 0 0 16px var(--accent-glow), inset 0 1px 1.5px rgba(255, 255, 255, 0.18);
+  }
+}
+
+.animate-island-breathe {
+  animation: island-breathe 2.5s ease-in-out infinite;
+}

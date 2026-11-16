@@ -1,0 +1,18 @@
+{
+  "name": "AuRA_AuDTEX — The Illuminated Audio Transcriber",
+  "short_name": "AuRA_AuDTEX",
+  "description": "The Illuminated Audio Transcriber & Cognitive Copilot with Offline Faster-Whisper",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#080706",
+  "theme_color": "#d97706",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
