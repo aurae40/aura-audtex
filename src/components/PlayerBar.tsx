@@ -15,7 +15,6 @@ import {
   Mic,
   SlidersHorizontal,
   X,
-  Maximize2,
 } from 'lucide-react';
 import { WaveformRibbon } from './WaveformRibbon';
 
@@ -73,7 +72,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   milestonePercent: _milestonePercent = 75,
   milestoneTimeSec,
   reflectionsCount,
-  onOpenFullScreen,
+  onOpenFullScreen: _onOpenFullScreen,
   tokens = [],
   userHighlights = [],
   isSilenceVacuumActive = false,
@@ -216,21 +215,6 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                 {isAmbienceActive ? NOISE_LABELS[activeNoiseType] : 'Off'}
               </span>
             </button>
-            {onOpenFullScreen && (
-              <button
-                onClick={() => {
-                  setShowPlayerOptions(false);
-                  onOpenFullScreen();
-                }}
-                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
-              >
-                <span className="flex items-center gap-2">
-                  <Maximize2 className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Fullscreen visualizer</span>
-                </span>
-                <span className="text-[10px] text-stone-400 font-mono">Focus (u)</span>
-              </button>
-            )}
           </div>
         )}
       </div>

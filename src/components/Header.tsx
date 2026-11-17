@@ -29,7 +29,7 @@ export const Header: React.FC<HeaderProps> = ({
   onAudioUpload,
   isDarkMode = false,
   onToggleDarkMode,
-  onOpenFullScreen: _onOpenFullScreen,
+  onOpenFullScreen,
   isFullscreen: propIsFullscreen,
   onToggleFullscreen: propToggleFullscreen,
   onOpenCountryModal,
@@ -57,10 +57,22 @@ export const Header: React.FC<HeaderProps> = ({
         onToggleFullscreen={toggleHardwareFullscreen}
       />
 
-      {/* Global action area: AuRA brand, library, appearance, and theme toggle */}
+      {/* Global action area: AuRA brand with motion graphics popout, library, appearance, and theme toggle */}
       <div className="px-4 py-2.5 flex items-center justify-between">
-        {/* Generous, clean AuRA Wordmark with subtle acoustic logo */}
-        <div className="flex items-center gap-2.5 select-none py-0.5">
+        {/* Brand Stamp with Exaggerated Interactive Popout & Fullscreen Trigger */}
+        <div
+          className="group/aura flex items-center gap-2.5 cursor-pointer select-none py-0.5 active:scale-95 transition-transform"
+          onClick={() => onOpenFullScreen?.()}
+          title="Click AuRA or 'u' to enter Fullscreen Audio Visualizer"
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onOpenFullScreen?.();
+            }
+          }}
+        >
           <div
             className="flex items-center gap-0.5 font-bold text-xl tracking-tighter drop-shadow transition-colors duration-200"
             style={{ color: 'var(--accent)' }}
@@ -70,8 +82,24 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="aura-bar-3 inline-block origin-bottom transition-transform duration-200 text-base">lı</span>
           </div>
           <span className="font-title text-xl font-bold tracking-tight text-stone-900 dark:text-stone-100 flex items-baseline">
-            <span>Au</span>
-            <span style={{ color: 'var(--accent)' }}>RA</span>
+            <span className="aura-letter-a inline-block pointer-events-none">A</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onOpenFullScreen?.();
+              }}
+              style={{ color: 'var(--accent)' }}
+              className="aura-u-interactive font-book font-bold lowercase text-xl px-[1px] rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 select-none"
+              title="Enter Fullscreen Audio Spectrum & Visualizer"
+              aria-label="Enter Fullscreen Audio Spectrum & Visualizer"
+            >
+              u
+            </button>
+            <span className="aura-letter-ra inline-block pointer-events-none" style={{ color: 'var(--accent)' }}>
+              RA
+            </span>
           </span>
         </div>
 
