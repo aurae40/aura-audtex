@@ -876,7 +876,7 @@ export const BookReader: React.FC<BookReaderProps> = ({
                 onTouchEnd={() => setIsHeadphonesHovered(false)}
                 title="Click or Tap to Upload Audio File"
                 aria-label="Upload audio file"
-                className="group relative cursor-pointer flex flex-col items-center justify-center p-4 rounded-3xl transition-all duration-300 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 mb-3 select-none"
+                className="group relative cursor-pointer flex flex-col items-center justify-center p-6 rounded-3xl transition-all duration-300 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 select-none"
               >
                 {/* Ambient back-glow reacting to hover */}
                 <div
@@ -893,15 +893,6 @@ export const BookReader: React.FC<BookReaderProps> = ({
                   className="w-32 h-40 text-stone-700 dark:text-stone-300 group-hover:text-amber-500 dark:group-hover:text-amber-400 transition-colors"
                   isShaking={isHeadphonesHovered}
                 />
-              </div>
-
-              <h2 className="font-book text-xl sm:text-2xl font-bold text-stone-800 dark:text-stone-100 tracking-tight mb-2">
-                No Audio Loaded
-              </h2>
-
-              <div className="pt-1 text-[10px] text-stone-400 dark:text-stone-500 font-mono tracking-tight flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span>Supports MP3 • WAV • M4A • AAC • FLAC • OGG</span>
               </div>
             </div>
           ) : (
