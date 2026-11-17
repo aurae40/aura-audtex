@@ -85,16 +85,34 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
   useEffect(() => {
     if (!showPlayerOptions) return;
-    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+
+    let autoCollapseTimer: number | null = null;
+    const startTimer = () => {
+      if (autoCollapseTimer) window.clearTimeout(autoCollapseTimer);
+      autoCollapseTimer = window.setTimeout(() => {
+        setShowPlayerOptions(false);
+      }, 4000);
+    };
+
+    startTimer();
+
+    const handleOutsideClick = (e: Event) => {
       if (playerOptionsRef.current && !playerOptionsRef.current.contains(e.target as Node)) {
         setShowPlayerOptions(false);
+      } else {
+        startTimer();
       }
     };
+
     document.addEventListener('mousedown', handleOutsideClick);
     document.addEventListener('touchstart', handleOutsideClick);
+    window.addEventListener('scroll', handleOutsideClick, { passive: true });
+
     return () => {
+      if (autoCollapseTimer) window.clearTimeout(autoCollapseTimer);
       document.removeEventListener('mousedown', handleOutsideClick);
       document.removeEventListener('touchstart', handleOutsideClick);
+      window.removeEventListener('scroll', handleOutsideClick);
     };
   }, [showPlayerOptions]);
 

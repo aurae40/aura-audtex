@@ -114,27 +114,62 @@ export const BookReader: React.FC<BookReaderProps> = ({
   const opacitySliderRef = useRef<HTMLDivElement | null>(null);
   const syncPopoverRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-collapse popout menus when clicking or tapping outside
+  // Auto-collapse popout menus: idle timer (4s) + outside click/tap/scroll
   useEffect(() => {
     if (!showLexFilterDropdown && !showOpacitySlider && !showSyncPopover) return;
-    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
-      const target = e.target as Node;
-      if (showLexFilterDropdown && lexDropdownRef.current && !lexDropdownRef.current.contains(target)) {
+
+    let autoCollapseTimer: number | null = null;
+    const startTimer = () => {
+      if (autoCollapseTimer) window.clearTimeout(autoCollapseTimer);
+      autoCollapseTimer = window.setTimeout(() => {
         setShowLexFilterDropdown(false);
-      }
-      if (showOpacitySlider && opacitySliderRef.current && !opacitySliderRef.current.contains(target)) {
         setShowOpacitySlider(false);
-      }
-      if (showSyncPopover && syncPopoverRef.current && !syncPopoverRef.current.contains(target)) {
         setShowSyncPopover(false);
+      }, 4000);
+    };
+
+    startTimer();
+
+    const handleOutsideClick = (e: Event) => {
+      const target = e.target as Node;
+      let clickedInside = false;
+
+      if (showLexFilterDropdown) {
+        if (lexDropdownRef.current && !lexDropdownRef.current.contains(target)) {
+          setShowLexFilterDropdown(false);
+        } else {
+          clickedInside = true;
+        }
+      }
+      if (showOpacitySlider) {
+        if (opacitySliderRef.current && !opacitySliderRef.current.contains(target)) {
+          setShowOpacitySlider(false);
+        } else {
+          clickedInside = true;
+        }
+      }
+      if (showSyncPopover) {
+        if (syncPopoverRef.current && !syncPopoverRef.current.contains(target)) {
+          setShowSyncPopover(false);
+        } else {
+          clickedInside = true;
+        }
+      }
+
+      if (clickedInside) {
+        startTimer();
       }
     };
 
     document.addEventListener('mousedown', handleOutsideClick);
     document.addEventListener('touchstart', handleOutsideClick);
+    window.addEventListener('scroll', handleOutsideClick, { passive: true });
+
     return () => {
+      if (autoCollapseTimer) window.clearTimeout(autoCollapseTimer);
       document.removeEventListener('mousedown', handleOutsideClick);
       document.removeEventListener('touchstart', handleOutsideClick);
+      window.removeEventListener('scroll', handleOutsideClick);
     };
   }, [showLexFilterDropdown, showOpacitySlider, showSyncPopover]);
 
