@@ -1,14 +1,9 @@
-const CACHE_NAME = 'aura-audtex-pwa-v2';
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/favicon.svg',
-  '/icons.svg',
-];
+const CACHE_NAME = 'aura-audtex-pwa-v3';
+const assetUrl = (path) => new URL(path, self.registration.scope).toString();
+const STATIC_ASSETS = ['index.html', 'manifest.json', 'favicon.svg', 'icons.svg'].map(assetUrl);
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -31,7 +26,7 @@ self.addEventListener('fetch', (event) => {
 
   // Do not intercept non-GET requests or backend API calls
   if (event.request.method !== 'GET') return;
-  if (url.pathname.startsWith('/health') || url.pathname.startsWith('/transcribe')) return;
+  if (url.pathname.endsWith('/health') || url.pathname.endsWith('/transcribe')) return;
   if (url.protocol === 'chrome-extension:' || url.protocol === 'blob:') return;
 
   // Network-First for HTML navigation so updates appear immediately
@@ -80,7 +75,7 @@ self.addEventListener('fetch', (event) => {
       }).catch(() => {
         // Offline fallback to index.html for navigation requests
         if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
+          return caches.match(assetUrl('index.html'));
         }
       });
     })

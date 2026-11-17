@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { TabType, BrainNoiseType, WordToken, UserHighlight } from '../types';
 import {
   Play,
@@ -13,6 +13,9 @@ import {
   Brain,
   Zap,
   Mic,
+  SlidersHorizontal,
+  X,
+  Maximize2,
 } from 'lucide-react';
 import { WaveformRibbon } from './WaveformRibbon';
 
@@ -70,7 +73,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   milestonePercent: _milestonePercent = 75,
   milestoneTimeSec,
   reflectionsCount,
-  onOpenFullScreen: _onOpenFullScreen,
+  onOpenFullScreen,
   tokens = [],
   userHighlights = [],
   isSilenceVacuumActive = false,
@@ -78,6 +81,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   silenceTimeSavedSec = 0,
   onQuickVoiceDictate,
 }) => {
+  const [showPlayerOptions, setShowPlayerOptions] = useState(false);
   const cycleSpeed = () => {
     const rates = [1.0, 1.25, 1.5, 2.0, 0.75];
     const currentIndex = rates.indexOf(playbackRate);
@@ -101,144 +105,134 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
         />
       </div>
 
-      {/* Apple Curated Uniform Symbol Transport Controls (Equal Spacing & Hover Insights) */}
-      <div className="flex items-center justify-between w-full px-1.5 py-0.5">
-        {/* 1. Speed Symbol Button */}
-        <button
-          onClick={cycleSpeed}
-          className="apple-btn-secondary relative group w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all hover:scale-105 active:scale-95"
-          title="Playback Speed"
-        >
-          <span className="text-xs font-mono font-bold tracking-tighter text-stone-700 dark:text-stone-200">
-            {playbackRate.toFixed(2).replace(/\.00$/, '')}×
-          </span>
-          {/* Tooltip Hover Highlight */}
-          <div className="absolute bottom-full left-0 mb-2 px-2.5 py-1 rounded-xl bg-stone-950/95 border border-white/10 text-stone-100 shadow-2xl text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 flex flex-col items-start backdrop-blur-md">
-            <span className="font-semibold text-amber-400">Speed: {playbackRate.toFixed(2).replace(/\.00$/, '')}×</span>
-            <span className="text-[9px] text-stone-400">Tap to cycle (1×, 1.25×, 1.5×, 2×)</span>
-          </div>
-        </button>
-
-        {/* 2. Silence Vacuum Symbol Button */}
-        {onToggleSilenceVacuum && (
+      {/* Primary transport remains touch-safe; less-frequent controls live in one sheet. */}
+      <div className="relative flex items-center justify-between w-full px-4 py-1">
+        {/* Three large primary transport controls (touch-safe >= 48px) */}
+        <div className="flex items-center justify-center gap-6 sm:gap-8 mx-auto">
           <button
-            onClick={onToggleSilenceVacuum}
-            className={`relative group w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all hover:scale-105 active:scale-95 ${
-              isSilenceVacuumActive
-                ? 'border border-emerald-500/80 bg-emerald-500/20 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
-                : 'apple-btn-secondary text-stone-700 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-            }`}
-            title="Silence Vacuum"
+            onClick={onRewind10}
+            className="apple-btn-secondary w-12 h-12 rounded-full flex items-center justify-center text-stone-700 dark:text-stone-300 hover:text-stone-950 dark:hover:text-white transition active:scale-95 shadow-sm"
+            title="Rewind 10 seconds"
+            aria-label="Rewind 10 seconds"
           >
-            <Zap className={`w-4 h-4 ${isSilenceVacuumActive ? 'fill-current text-emerald-400' : 'text-stone-500'}`} />
-            {/* Tooltip Hover Highlight */}
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 rounded-xl bg-stone-950/95 border border-white/10 text-stone-100 shadow-2xl text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 flex flex-col items-center backdrop-blur-md">
-              <span className="font-semibold text-emerald-400 flex items-center gap-1">
-                <Zap className="w-2.5 h-2.5 fill-current" /> Silence Vacuum
-              </span>
-              <span className="text-[9px] text-stone-300">
-                {isSilenceVacuumActive
-                  ? `Active (${silenceTimeSavedSec > 0 ? silenceTimeSavedSec.toFixed(1) + 's saved' : 'trimming pauses'})`
-                  : 'Trims dead-air pauses'}
-              </span>
+            <div className="relative flex items-center justify-center">
+              <RotateCcw className="w-5 h-5" />
+              <span className="absolute text-[8px] font-bold font-mono top-[3.5px]">10</span>
             </div>
           </button>
-        )}
-
-        {/* 3. Rewind 10s Symbol Button */}
-        <button
-          onClick={onRewind10}
-          className="apple-btn-secondary relative group w-9 h-9 rounded-full flex items-center justify-center text-stone-700 dark:text-stone-300 hover:text-stone-950 dark:hover:text-white transition-all hover:scale-105 active:scale-95 shrink-0"
-          title="Rewind 10 seconds"
-        >
-          <div className="relative flex items-center justify-center">
-            <RotateCcw className="w-4 h-4" />
-            <span className="absolute text-[7px] font-bold font-mono top-[3px]">10</span>
-          </div>
-          {/* Tooltip Hover Highlight */}
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 rounded-xl bg-stone-950/95 border border-white/10 text-stone-100 shadow-2xl text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 flex flex-col items-center backdrop-blur-md">
-            <span className="font-semibold text-stone-200">Rewind 10 Seconds</span>
-          </div>
-        </button>
-
-        {/* 4. Center Play / Pause Symbol Button */}
-        <button
-          onClick={onTogglePlay}
-          className="relative group w-12 h-12 rounded-full aspect-square shrink-0 flex items-center justify-center font-bold text-black transition-all hover:scale-105 active:scale-95 shadow-lg select-none"
-          style={{
-            background: 'var(--accent)',
-            boxShadow: '0 4px 20px var(--accent-glow)',
-          }}
-          title={isPlaying ? 'Pause' : 'Play'}
-        >
-          {isPlaying ? (
-            <Pause className="w-5 h-5 fill-current" />
-          ) : (
-            <Play className="w-5 h-5 fill-current ml-0.5" />
-          )}
-          {/* Tooltip Hover Highlight */}
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 rounded-xl bg-stone-950/95 border border-white/10 text-stone-100 shadow-2xl text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 flex flex-col items-center backdrop-blur-md">
-            <span className="font-semibold" style={{ color: 'var(--accent)' }}>
-              {isPlaying ? 'Pause Audio' : 'Play Audio'}
-            </span>
-          </div>
-        </button>
-
-        {/* 5. Forward 10s Symbol Button */}
-        <button
-          onClick={onForward10}
-          className="apple-btn-secondary relative group w-9 h-9 rounded-full flex items-center justify-center text-stone-700 dark:text-stone-300 hover:text-stone-950 dark:hover:text-white transition-all hover:scale-105 active:scale-95 shrink-0"
-          title="Forward 10 seconds"
-        >
-          <div className="relative flex items-center justify-center">
-            <RotateCw className="w-4 h-4" />
-            <span className="absolute text-[7px] font-bold font-mono top-[3px]">10</span>
-          </div>
-          {/* Tooltip Hover Highlight */}
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 rounded-xl bg-stone-950/95 border border-white/10 text-stone-100 shadow-2xl text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 flex flex-col items-center backdrop-blur-md">
-            <span className="font-semibold text-stone-200">Forward 10 Seconds</span>
-          </div>
-        </button>
-
-        {/* 6. Spoken Marginalia Dictate Symbol Button */}
-        {onQuickVoiceDictate && (
           <button
-            onClick={onQuickVoiceDictate}
-            className="apple-btn-secondary relative group w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all hover:scale-105 active:scale-95 hover:text-amber-300 hover:border-amber-500/40"
-            title="Spoken Marginalia Dictation"
+            onClick={onTogglePlay}
+            className="w-14 h-14 rounded-full aspect-square flex items-center justify-center font-bold text-black transition active:scale-95 shadow-lg select-none"
+            style={{
+              background: 'var(--accent)',
+              boxShadow: '0 4px 20px var(--accent-glow)',
+            }}
+            title={isPlaying ? 'Pause' : 'Play'}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
           >
-            <Mic className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
-            {/* Tooltip Hover Highlight */}
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 rounded-xl bg-stone-950/95 border border-white/10 text-stone-100 shadow-2xl text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 flex flex-col items-center backdrop-blur-md">
-              <span className="font-semibold text-amber-400 flex items-center gap-1">
-                <Mic className="w-2.5 h-2.5" /> Spoken Marginalia
-              </span>
-              <span className="text-[9px] text-stone-300">Voice-to-Note Dictation</span>
+            {isPlaying ? (
+              <Pause className="w-6 h-6 fill-current" />
+            ) : (
+              <Play className="w-6 h-6 fill-current ml-0.5" />
+            )}
+          </button>
+          <button
+            onClick={onForward10}
+            className="apple-btn-secondary w-12 h-12 rounded-full flex items-center justify-center text-stone-700 dark:text-stone-300 hover:text-stone-950 dark:hover:text-white transition active:scale-95 shadow-sm"
+            title="Forward 10 seconds"
+            aria-label="Forward 10 seconds"
+          >
+            <div className="relative flex items-center justify-center">
+              <RotateCw className="w-5 h-5" />
+              <span className="absolute text-[8px] font-bold font-mono top-[3.5px]">10</span>
             </div>
           </button>
-        )}
+        </div>
 
-        {/* 7. Brainwave Acoustics Symbol Button */}
+        {/* Player Options sheet toggle */}
         <button
-          onClick={onOpenBrainwaves}
-          className={`relative group w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all hover:scale-105 active:scale-95 ${
-            isAmbienceActive
-              ? 'border border-amber-500/80 bg-amber-500/20 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.35)]'
-              : 'apple-btn-secondary text-stone-700 dark:text-stone-300 hover:text-stone-900 dark:hover:text-white'
+          onClick={() => setShowPlayerOptions((current) => !current)}
+          className={`absolute right-1 w-10 h-10 rounded-full flex items-center justify-center transition active:scale-95 ${
+            showPlayerOptions
+              ? 'bg-amber-500/20 border border-amber-500/50 text-amber-300'
+              : 'text-stone-500 hover:text-stone-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'
           }`}
-          title="Brainwaves & Acoustics"
+          title="Player options"
+          aria-label="Player options"
         >
-          <Brain className={`w-4 h-4 ${isAmbienceActive ? 'text-amber-400 animate-pulse' : 'text-stone-500 dark:text-stone-400'}`} />
-          {/* Tooltip Hover Highlight */}
-          <div className="absolute bottom-full right-0 mb-2 px-2.5 py-1 rounded-xl bg-stone-950/95 border border-white/10 text-stone-100 shadow-2xl text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 flex flex-col items-end backdrop-blur-md">
-            <span className="font-semibold text-amber-400 flex items-center gap-1">
-              <Brain className="w-2.5 h-2.5" /> Brainwaves & Focus
-            </span>
-            <span className="text-[9px] text-stone-300">
-              {isAmbienceActive ? NOISE_LABELS[activeNoiseType] : 'Binaural & Noise Acoustics'}
-            </span>
-          </div>
+          {showPlayerOptions ? <X className="w-4.5 h-4.5" /> : <SlidersHorizontal className="w-4.5 h-4.5" />}
         </button>
+
+        {showPlayerOptions && (
+          <div className="absolute right-0 bottom-full mb-2 w-64 p-2.5 rounded-2xl bg-stone-950/95 border border-white/10 shadow-2xl z-50 space-y-1.5 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2 duration-150">
+            <div className="px-3 py-1 text-[10px] font-mono uppercase tracking-wider text-stone-400 border-b border-white/10 pb-1.5 mb-1">
+              Player Options
+            </div>
+            <button
+              onClick={cycleSpeed}
+              className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+            >
+              <span>Playback speed</span>
+              <strong className="text-amber-300 font-mono">{playbackRate.toFixed(2).replace(/\.00$/, '')}×</strong>
+            </button>
+            {onToggleSilenceVacuum && (
+              <button
+                onClick={onToggleSilenceVacuum}
+                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+              >
+                <span className="flex items-center gap-2">
+                  <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Skip silent gaps</span>
+                </span>
+                <span className={isSilenceVacuumActive ? 'text-emerald-300 font-bold' : 'text-stone-500'}>
+                  {isSilenceVacuumActive ? 'On' : 'Off'}
+                </span>
+              </button>
+            )}
+            {onQuickVoiceDictate && (
+              <button
+                onClick={() => {
+                  setShowPlayerOptions(false);
+                  onQuickVoiceDictate();
+                }}
+                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center gap-2 text-xs text-stone-200"
+              >
+                <Mic className="w-3.5 h-3.5 text-amber-400" />
+                <span>Add spoken note</span>
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setShowPlayerOptions(false);
+                onOpenBrainwaves();
+              }}
+              className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+            >
+              <span className="flex items-center gap-2">
+                <Brain className="w-3.5 h-3.5 text-amber-400" />
+                <span>Focus sound</span>
+              </span>
+              <span className="text-stone-400 font-mono text-[11px] truncate max-w-[90px]">
+                {isAmbienceActive ? NOISE_LABELS[activeNoiseType] : 'Off'}
+              </span>
+            </button>
+            {onOpenFullScreen && (
+              <button
+                onClick={() => {
+                  setShowPlayerOptions(false);
+                  onOpenFullScreen();
+                }}
+                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+              >
+                <span className="flex items-center gap-2">
+                  <Maximize2 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Fullscreen visualizer</span>
+                </span>
+                <span className="text-[10px] text-stone-400 font-mono">Focus (u)</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Modern Edgeless Floating Bottom Navigation Bar */}
