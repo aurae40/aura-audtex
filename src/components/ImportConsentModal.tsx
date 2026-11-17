@@ -92,13 +92,15 @@ export const ImportConsentModal: React.FC<ImportConsentModalProps> = ({
         setIsCheckingServer(false);
       }
 
-      // Automatically select local Faster-Whisper whenever its health check passes on this computer
+      // Automatically select local Faster-Whisper if online on this computer; otherwise fallback to builtin
       if (status.online) {
         setSelectedEngine('local');
       } else {
         const savedEngine = localStorage.getItem('aura_transcriber_engine');
-        if (savedEngine === 'builtin' || savedEngine === 'remote') {
-          setSelectedEngine(savedEngine);
+        if (savedEngine === 'remote') {
+          setSelectedEngine('remote');
+        } else {
+          setSelectedEngine('builtin');
         }
       }
     };

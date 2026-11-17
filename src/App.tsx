@@ -577,7 +577,7 @@ export function App() {
   }
   const [transcriptionErrorNotice, setTranscriptionErrorNotice] = useState<TranscriptionErrorNotice | null>(null);
 
-  // Auto-detect: Default to local Faster-Whisper if health check passes on this computer
+  // Auto-detect: Use local Faster-Whisper if online on this computer; default to builtin on iPhone/remote devices
   useEffect(() => {
     const detectDefaultEngine = async () => {
       try {
@@ -586,13 +586,12 @@ export function App() {
           setTranscriberEngine('local');
           setStoredTranscriberEngine('local');
         } else {
-          const saved = getStoredTranscriberEngine();
-          if (saved === 'local') {
-            setTranscriberEngine('builtin');
-          }
+          setTranscriberEngine('builtin');
+          setStoredTranscriberEngine('builtin');
         }
       } catch {
-        // ignore
+        setTranscriberEngine('builtin');
+        setStoredTranscriberEngine('builtin');
       }
     };
     detectDefaultEngine();

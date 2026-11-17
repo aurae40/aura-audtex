@@ -35,6 +35,9 @@ export async function decodeAudioTo16kMono(file: File): Promise<{
   try {
     const arrayBuffer = await file.arrayBuffer();
     audioCtx = new AudioCtx();
+    if (audioCtx.state === 'suspended') {
+      try { await audioCtx.resume(); } catch { /* ignore */ }
+    }
     let audioBuffer: AudioBuffer;
     try {
       // Some browsers detach the input buffer while decoding, so provide a copy.
@@ -114,7 +117,7 @@ export async function getBuiltinWhisperPipeline(
   }
 
   transcriberPipeline = await pipeline('automatic-speech-recognition', modelId, {
-    dtype: 'fp32',
+    dtype: 'q8',
     device: 'wasm',
     progress_callback: (p: any) => {
       if (p.status === 'initiate') {

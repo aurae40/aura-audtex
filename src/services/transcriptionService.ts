@@ -122,7 +122,8 @@ export function getStoredTranscriberEngine(): TranscriberEngine {
   if (saved === 'builtin' || saved === 'local' || saved === 'remote') {
     return saved;
   }
-  return 'local'; // Default to Faster-Whisper on My Computer / Server!
+  // Default to 'builtin' (In-Browser Whisper) so iPhone, Android, and remote devices work 100% out of the box
+  return 'builtin';
 }
 
 export function setStoredTranscriberEngine(engine: TranscriberEngine): void {
