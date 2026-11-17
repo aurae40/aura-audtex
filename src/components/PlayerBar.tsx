@@ -91,7 +91,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
       if (autoCollapseTimer) window.clearTimeout(autoCollapseTimer);
       autoCollapseTimer = window.setTimeout(() => {
         setShowPlayerOptions(false);
-      }, 3500);
+      }, 2000);
     };
 
     startTimer();

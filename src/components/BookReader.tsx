@@ -114,7 +114,7 @@ export const BookReader: React.FC<BookReaderProps> = ({
   const opacitySliderRef = useRef<HTMLDivElement | null>(null);
   const syncPopoverRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-collapse popout menus: idle timer (4s) + outside click/tap/scroll
+  // Auto-collapse popout menus: idle timer (2s) + outside click/tap/scroll
   useEffect(() => {
     if (!showLexFilterDropdown && !showOpacitySlider && !showSyncPopover) return;
 
@@ -125,7 +125,7 @@ export const BookReader: React.FC<BookReaderProps> = ({
         setShowLexFilterDropdown(false);
         setShowOpacitySlider(false);
         setShowSyncPopover(false);
-      }, 3500);
+      }, 2000);
     };
 
     startTimer();
