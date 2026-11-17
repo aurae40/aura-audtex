@@ -754,14 +754,9 @@ export function App() {
   };
 
   const startPlay = () => {
-    // If no audio is loaded, prompt user to upload audio instead of playing sample speech synthesis
+    // If no audio is loaded, do not prompt user to open an audio file.
+    // That role belongs exclusively to the earphone/headphones icon on the empty interface.
     if (!activeBlobUrlRef.current && (!audioElementRef.current || !audioElementRef.current.src)) {
-      setToastNotification({
-        message: 'No audio loaded. Please upload an MP3 or recording first.',
-        type: 'info',
-      });
-      const fileInput = document.getElementById('aura-global-file-input') as HTMLInputElement | null;
-      if (fileInput) fileInput.click();
       return;
     }
 
