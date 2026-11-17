@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import type { WordToken, Marginalia, UserHighlight, LexiconEntry } from '../types';
 import { DictionaryCard, type PopoverPosition } from './DictionaryCard';
 import { normalizeWordToken, lemmatize } from '../services/dictionaryPackService';
@@ -87,6 +87,25 @@ export const BookReader: React.FC<BookReaderProps> = ({
   const [showOpacitySlider, setShowOpacitySlider] = useState(false);
   const [showSyncPopover, setShowSyncPopover] = useState(false);
   const [isHeadphonesHovered, setIsHeadphonesHovered] = useState(false);
+  const shakeTimerRef = useRef<number | null>(null);
+
+  const triggerTransformativeShake = useCallback((duration = 1400) => {
+    setIsHeadphonesHovered(true);
+    if (shakeTimerRef.current) {
+      window.clearTimeout(shakeTimerRef.current);
+    }
+    shakeTimerRef.current = window.setTimeout(() => {
+      setIsHeadphonesHovered(false);
+    }, duration);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (shakeTimerRef.current) {
+        window.clearTimeout(shakeTimerRef.current);
+      }
+    };
+  }, []);
 
   // Vocabulary Sensitivity / Difficulty Filter (Recommendation E)
   const [lexiconFilter, setLexiconFilter] = useState<'all' | 'scholar' | 'vault'>('all');
@@ -567,10 +586,15 @@ export const BookReader: React.FC<BookReaderProps> = ({
   };
 
   return (
-    <div ref={containerRef} className="flex-1 paper-sheet p-4 sm:p-5 flex flex-col justify-between overflow-y-auto relative select-none">
-      <div>
+    <div
+      ref={containerRef}
+      className={`flex-1 paper-sheet p-4 sm:p-5 flex flex-col ${
+        tokens.length === 0 ? 'h-full min-h-0' : 'justify-between'
+      } overflow-y-auto relative select-none`}
+    >
+      <div className={`w-full ${tokens.length === 0 ? 'flex-1 flex flex-col min-h-0' : ''}`}>
         {/* Minimalist Authentic Controls Bar: All Words, Focus, Sync */}
-        <div className="flex items-center justify-center gap-3 sm:gap-4 border-b border-current/15 pb-2.5 mb-3 text-[10px]">
+        <div className="flex items-center justify-center gap-3 sm:gap-4 border-b border-current/15 pb-2.5 mb-3 text-[10px] shrink-0">
           {/* Vocabulary Filter Dropdown (Recommendation E) */}
           <div className="relative">
               <button
@@ -856,41 +880,53 @@ export const BookReader: React.FC<BookReaderProps> = ({
         )}
 
         {/* Synchronized Word Flow OR Clean Default Empty State */}
-        <div className="font-book text-[15px] sm:text-[16px] leading-relaxed space-y-3 pb-3 relative">
+        <div
+          className={`font-book text-[15px] sm:text-[16px] leading-relaxed relative ${
+            tokens.length === 0
+              ? 'flex-1 flex flex-col items-center justify-center my-auto min-h-0'
+              : 'space-y-3 pb-3'
+          }`}
+        >
           {tokens.length === 0 ? (
-            <div className="py-10 px-4 flex flex-col items-center justify-center text-center select-none animate-in fade-in duration-200">
+            <div className="flex-1 w-full flex flex-col items-center justify-center text-center select-none my-auto py-6 sm:py-8 animate-in fade-in duration-300">
               {/* Interactive Shakable Artisan Headphones Upload Centerpiece */}
               <div
                 role="button"
                 tabIndex={0}
-                onClick={onTriggerUpload}
+                onClick={() => {
+                  triggerTransformativeShake(800);
+                  onTriggerUpload?.();
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
+                    triggerTransformativeShake(800);
                     onTriggerUpload?.();
                   }
                 }}
                 onMouseEnter={() => setIsHeadphonesHovered(true)}
                 onMouseLeave={() => setIsHeadphonesHovered(false)}
-                onTouchStart={() => setIsHeadphonesHovered(true)}
-                onTouchEnd={() => setIsHeadphonesHovered(false)}
+                onTouchStart={() => triggerTransformativeShake(1400)}
                 title="Click or Tap to Upload Audio File"
                 aria-label="Upload audio file"
-                className="group relative cursor-pointer flex flex-col items-center justify-center p-6 rounded-3xl transition-all duration-300 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 select-none"
+                className="group relative cursor-pointer flex flex-col items-center justify-center p-6 sm:p-8 rounded-3xl transition-all duration-300 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 select-none"
               >
-                {/* Ambient back-glow reacting to hover */}
+                {/* Transformative Radiant Back-Glow */}
                 <div
-                  className={`absolute w-36 h-36 rounded-full blur-2xl transition-all duration-500 pointer-events-none ${
+                  className={`absolute w-48 h-48 sm:w-56 sm:h-56 rounded-full blur-2xl sm:blur-3xl transition-all duration-700 pointer-events-none ${
                     isHeadphonesHovered
-                      ? 'scale-125 opacity-30'
-                      : 'scale-90 opacity-10'
+                      ? 'scale-130 opacity-50 animate-aura-pulse'
+                      : 'scale-95 opacity-15'
                   }`}
-                  style={{ background: 'var(--accent)' }}
+                  style={{
+                    background:
+                      'radial-gradient(circle, var(--accent) 0%, rgba(245, 158, 11, 0.45) 45%, transparent 75%)',
+                  }}
                 />
 
                 {/* Handcrafted Continuous Line-Art Headphones matching user sketch */}
                 <ArtisanHeadphonesIcon
-                  className="w-32 h-40 text-stone-700 dark:text-stone-300 group-hover:text-amber-500 dark:group-hover:text-amber-400 transition-colors"
+                  className="w-36 h-44 sm:w-44 sm:h-52 text-stone-700 dark:text-stone-300 group-hover:text-amber-500 dark:group-hover:text-amber-400 transition-colors"
                   isShaking={isHeadphonesHovered}
                 />
               </div>

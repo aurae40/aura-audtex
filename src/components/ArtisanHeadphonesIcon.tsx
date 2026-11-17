@@ -13,35 +13,47 @@ export const ArtisanHeadphonesIcon: React.FC<ArtisanHeadphonesProps> = ({
     <div className={`relative inline-flex items-center justify-center select-none ${className}`}>
       {/* Soundwave Arcs (Pulsing when shaking/hovered) */}
       <svg
-        className={`absolute inset-0 w-full h-full pointer-events-none transition-opacity duration-300 ${
-          isShaking ? 'opacity-100' : 'opacity-0'
+        className={`absolute inset-0 w-full h-full pointer-events-none transition-all duration-300 ${
+          isShaking ? 'opacity-100 scale-105' : 'opacity-0 scale-95'
         }`}
         viewBox="0 0 200 260"
         fill="none"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="2.2"
         strokeLinecap="round"
       >
         {/* Left Earcup Sonic Soundwave Arcs */}
         <path
           d="M 28,95 C 26,105 26,115 28,125"
-          className="animate-ping opacity-60"
-          style={{ animationDuration: '1.2s' }}
+          className="animate-ping opacity-75 text-amber-400"
+          style={{ animationDuration: '1.1s' }}
         />
         <path
-          d="M 20,88 C 16,104 16,124 20,135"
-          className="animate-pulse opacity-40"
+          d="M 20,88 C 15,104 15,124 20,135"
+          className="animate-pulse opacity-60 text-amber-300"
+          style={{ animationDuration: '1.4s' }}
+        />
+        <path
+          d="M 12,80 C 6,102 6,130 12,144"
+          className="opacity-40 text-amber-500 animate-pulse"
+          style={{ animationDuration: '1.8s' }}
         />
 
         {/* Right Earcup Sonic Soundwave Arcs */}
         <path
           d="M 172,95 C 174,105 174,115 172,125"
-          className="animate-ping opacity-60"
-          style={{ animationDuration: '1.2s', animationDelay: '0.2s' }}
+          className="animate-ping opacity-75 text-amber-400"
+          style={{ animationDuration: '1.1s', animationDelay: '0.15s' }}
         />
         <path
-          d="M 180,88 C 184,104 184,124 180,135"
-          className="animate-pulse opacity-40"
+          d="M 180,88 C 185,104 185,124 180,135"
+          className="animate-pulse opacity-60 text-amber-300"
+          style={{ animationDuration: '1.4s', animationDelay: '0.2s' }}
+        />
+        <path
+          d="M 188,80 C 194,102 194,130 188,144"
+          className="opacity-40 text-amber-500 animate-pulse"
+          style={{ animationDuration: '1.8s', animationDelay: '0.25s' }}
         />
       </svg>
 
@@ -54,7 +66,9 @@ export const ArtisanHeadphonesIcon: React.FC<ArtisanHeadphonesProps> = ({
         strokeLinecap="round"
         strokeLinejoin="round"
         className={`w-full h-full transition-all duration-300 filter drop-shadow-sm ${
-          isShaking ? 'animate-headphone-shake text-amber-400 drop-shadow-[0_0_16px_var(--accent)]' : ''
+          isShaking
+            ? 'animate-headphone-shake text-amber-400 drop-shadow-[0_0_24px_rgba(245,158,11,0.65)]'
+            : 'animate-headphone-idle'
         }`}
       >
         {/* 1. Outer Headband Arch */}
