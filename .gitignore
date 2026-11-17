@@ -12,6 +12,23 @@ dist
 dist-ssr
 *.local
 
+# Binaries, Media & Executables
+*.exe
+cloudflared*
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.ps1
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

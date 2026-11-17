@@ -72,7 +72,7 @@ export const ENGINE_PROFILES: Record<TranscriberEngine, EngineProfile> = {
   },
 };
 
-export const DEFAULT_HTTPS_TUNNEL = 'https://screenshot-plate-duty-bike.trycloudflare.com';
+export const DEFAULT_HTTPS_TUNNEL = '';
 
 export function getStoredServerUrl(): string {
   const saved = localStorage.getItem(LOCAL_SERVER_URL_STORAGE);
