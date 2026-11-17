@@ -97,7 +97,7 @@ export const Header: React.FC<HeaderProps> = ({
             >
               u
             </button>
-            <span className="aura-letter-ra inline-block pointer-events-none" style={{ color: 'var(--accent)' }}>
+            <span className="aura-letter-ra inline-block pointer-events-none">
               RA
             </span>
           </span>
