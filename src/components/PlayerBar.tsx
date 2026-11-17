@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { TabType, BrainNoiseType, WordToken, UserHighlight } from '../types';
 import {
   Play,
@@ -81,6 +81,23 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   onQuickVoiceDictate,
 }) => {
   const [showPlayerOptions, setShowPlayerOptions] = useState(false);
+  const playerOptionsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!showPlayerOptions) return;
+    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      if (playerOptionsRef.current && !playerOptionsRef.current.contains(e.target as Node)) {
+        setShowPlayerOptions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, [showPlayerOptions]);
+
   const cycleSpeed = () => {
     const rates = [1.0, 1.25, 1.5, 2.0, 0.75];
     const currentIndex = rates.indexOf(playbackRate);
@@ -163,7 +180,16 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
         </button>
 
         {showPlayerOptions && (
-          <div className="absolute right-0 bottom-full mb-2 w-64 p-2.5 rounded-2xl bg-stone-950/95 border border-white/10 shadow-2xl z-50 space-y-1.5 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <>
+            {/* Auto-collapse backdrop */}
+            <div
+              className="fixed inset-0 z-40 bg-transparent cursor-default"
+              onClick={() => setShowPlayerOptions(false)}
+            />
+            <div
+              ref={playerOptionsRef}
+              className="absolute right-0 bottom-full mb-2 w-64 p-2.5 rounded-2xl bg-stone-950/95 border border-white/10 shadow-2xl z-50 space-y-1.5 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2 duration-150"
+            >
             <div className="px-3 py-1 text-[10px] font-mono uppercase tracking-wider text-stone-400 border-b border-white/10 pb-1.5 mb-1">
               Player Options
             </div>
@@ -216,6 +242,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
               </span>
             </button>
           </div>
+          </>
         )}
       </div>
 

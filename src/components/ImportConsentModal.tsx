@@ -181,8 +181,14 @@ export const ImportConsentModal: React.FC<ImportConsentModalProps> = ({
   };
 
   return (
-    <div className="theme-overlay fixed inset-0 z-50 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 select-none animate-in fade-in duration-150">
-      <div className="theme-modal w-full max-w-lg rounded-3xl p-5 shadow-2xl flex flex-col space-y-4 max-h-[92vh] overflow-y-auto">
+    <div
+      onClick={onCancel}
+      className="theme-overlay fixed inset-0 z-50 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 select-none animate-in fade-in duration-150"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="theme-modal w-full max-w-lg rounded-3xl p-5 shadow-2xl flex flex-col space-y-4 max-h-[92vh] overflow-y-auto"
+      >
         {/* Top Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-3">
           <div className="flex items-center gap-2">

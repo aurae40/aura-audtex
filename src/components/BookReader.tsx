@@ -110,6 +110,54 @@ export const BookReader: React.FC<BookReaderProps> = ({
   // Vocabulary Sensitivity / Difficulty Filter (Recommendation E)
   const [lexiconFilter, setLexiconFilter] = useState<'all' | 'scholar' | 'vault'>('all');
   const [showLexFilterDropdown, setShowLexFilterDropdown] = useState(false);
+  const lexDropdownRef = useRef<HTMLDivElement | null>(null);
+  const opacitySliderRef = useRef<HTMLDivElement | null>(null);
+  const syncPopoverRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-collapse popout menus when clicking or tapping outside
+  useEffect(() => {
+    if (!showLexFilterDropdown && !showOpacitySlider && !showSyncPopover) return;
+    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (showLexFilterDropdown && lexDropdownRef.current && !lexDropdownRef.current.contains(target)) {
+        setShowLexFilterDropdown(false);
+      }
+      if (showOpacitySlider && opacitySliderRef.current && !opacitySliderRef.current.contains(target)) {
+        setShowOpacitySlider(false);
+      }
+      if (showSyncPopover && syncPopoverRef.current && !syncPopoverRef.current.contains(target)) {
+        setShowSyncPopover(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, [showLexFilterDropdown, showOpacitySlider, showSyncPopover]);
+
+  const toggleLexFilterDropdown = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setShowOpacitySlider(false);
+    setShowSyncPopover(false);
+    setShowLexFilterDropdown((prev) => !prev);
+  };
+
+  const toggleOpacitySlider = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setShowLexFilterDropdown(false);
+    setShowSyncPopover(false);
+    setShowOpacitySlider((prev) => !prev);
+  };
+
+  const toggleSyncPopover = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setShowLexFilterDropdown(false);
+    setShowOpacitySlider(false);
+    setShowSyncPopover((prev) => !prev);
+  };
 
   // In-Place Anchored Floating Dictionary State
   interface AnchoredDictionaryState {
@@ -596,9 +644,9 @@ export const BookReader: React.FC<BookReaderProps> = ({
         {/* Minimalist Authentic Controls Bar: All Words, Focus, Sync */}
         <div className="flex items-center justify-center gap-3 sm:gap-4 border-b border-current/15 pb-2.5 mb-3 text-[10px] shrink-0">
           {/* Vocabulary Filter Dropdown (Recommendation E) */}
-          <div className="relative">
+          <div ref={lexDropdownRef} className="relative">
               <button
-                onClick={() => setShowLexFilterDropdown(!showLexFilterDropdown)}
+                onClick={toggleLexFilterDropdown}
                 className="apple-btn-paper text-[10px] py-0.5 px-2 flex items-center gap-1"
                 title="Change Vocabulary Sensitivity Filter"
               >
@@ -658,9 +706,9 @@ export const BookReader: React.FC<BookReaderProps> = ({
             </div>
 
             {/* Reading Focus Opacity Slider */}
-            <div className="relative">
+            <div ref={opacitySliderRef} className="relative">
               <button
-                onClick={() => setShowOpacitySlider(!showOpacitySlider)}
+                onClick={toggleOpacitySlider}
                 className="apple-btn-paper text-[10px] py-0.5 px-2"
                 title="Adjust text focus dimming percentage"
               >
@@ -689,7 +737,10 @@ export const BookReader: React.FC<BookReaderProps> = ({
 
                   <div className="grid grid-cols-3 gap-1 pt-1 text-[8.5px] font-medium">
                     <button
-                      onClick={() => setFocusOpacity(0.97)}
+                      onClick={() => {
+                        setFocusOpacity(0.97);
+                        setShowOpacitySlider(false);
+                      }}
                       className={`py-1 rounded text-center transition ${
                         focusOpacity === 0.97
                           ? 'bg-amber-500 text-black font-bold shadow-xs'
@@ -699,7 +750,10 @@ export const BookReader: React.FC<BookReaderProps> = ({
                       97% (Clear)
                     </button>
                     <button
-                      onClick={() => setFocusOpacity(0.5)}
+                      onClick={() => {
+                        setFocusOpacity(0.5);
+                        setShowOpacitySlider(false);
+                      }}
                       className={`py-1 rounded text-center transition ${
                         focusOpacity === 0.5
                           ? 'bg-amber-500 text-black font-bold shadow-xs'
@@ -709,7 +763,10 @@ export const BookReader: React.FC<BookReaderProps> = ({
                       50% (Focus)
                     </button>
                     <button
-                      onClick={() => setFocusOpacity(0.03)}
+                      onClick={() => {
+                        setFocusOpacity(0.03);
+                        setShowOpacitySlider(false);
+                      }}
                       className={`py-1 rounded text-center transition ${
                         focusOpacity === 0.03
                           ? 'bg-amber-500 text-black font-bold shadow-xs'
@@ -725,9 +782,9 @@ export const BookReader: React.FC<BookReaderProps> = ({
 
             {/* Audio-to-Word Sync Calibrator Button */}
             {onSetSyncOffset && (
-              <div className="relative">
+              <div ref={syncPopoverRef} className="relative">
                 <button
-                  onClick={() => setShowSyncPopover(!showSyncPopover)}
+                  onClick={toggleSyncPopover}
                   className={`apple-btn-paper text-[10px] py-0.5 px-2 flex items-center gap-1 font-mono transition ${
                     syncOffset !== 0 ? 'border-amber-500/80 text-amber-900 font-bold bg-amber-500/20' : ''
                   }`}

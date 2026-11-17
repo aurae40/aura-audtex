@@ -420,8 +420,14 @@ export const VaultModal: React.FC<VaultModalProps> = ({
   const quotaGB = (storageStats.quotaBytes / (1024 * 1024 * 1024)).toFixed(1);
 
   return (
-    <div className="theme-overlay fixed inset-0 z-50 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 select-none animate-in fade-in duration-150">
-      <div className="theme-modal w-full max-w-2xl rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col space-y-4 max-h-[92vh] overflow-hidden">
+    <div
+      onClick={onClose}
+      className="theme-overlay fixed inset-0 z-50 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 select-none animate-in fade-in duration-150"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="theme-modal w-full max-w-2xl rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col space-y-4 max-h-[92vh] overflow-hidden"
+      >
         {/* Modal Top Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-3">
           <div className="flex items-center gap-2.5">

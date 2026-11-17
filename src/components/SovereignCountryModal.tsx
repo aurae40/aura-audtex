@@ -39,11 +39,18 @@ export const SovereignCountryModal: React.FC<SovereignCountryModalProps> = ({
     setActiveCountry(country);
     setCountryOverride(country.code);
     onSelectCountry?.(country);
+    onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-xl animate-in fade-in duration-200 select-none">
-      <div className="relative w-full max-w-lg max-h-[90vh] bg-stone-900/95 border border-white/10 rounded-3xl shadow-2xl flex flex-col overflow-hidden text-stone-100">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-xl animate-in fade-in duration-200 select-none"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-lg max-h-[90vh] bg-stone-900/95 border border-white/10 rounded-3xl shadow-2xl flex flex-col overflow-hidden text-stone-100"
+      >
         
         {/* Header */}
         <div className="px-5 pt-5 pb-3 border-b border-white/10 flex items-center justify-between">
