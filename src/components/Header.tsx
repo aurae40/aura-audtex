@@ -46,7 +46,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="theme-header w-full flex flex-col z-40 select-none backdrop-blur-xl pt-safe shadow-sm">
+    <header className="theme-header w-full flex flex-col z-40 select-none backdrop-blur-xl shadow-sm">
       {/* 1. Live Device Hardware Status Bar with Clock, Dynamic Island, Network & Battery Sync */}
       <DeviceStatusBar
         isPlaying={isPlaying}
