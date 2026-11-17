@@ -14,7 +14,6 @@ import {
   Filter,
   Timer,
   Mic,
-  Upload,
 } from 'lucide-react';
 
 interface BookReaderProps {
@@ -896,29 +895,9 @@ export const BookReader: React.FC<BookReaderProps> = ({
                 />
               </div>
 
-              <h2 className="font-book text-xl sm:text-2xl font-bold text-stone-800 dark:text-stone-100 tracking-tight mb-1">
+              <h2 className="font-book text-xl sm:text-2xl font-bold text-stone-800 dark:text-stone-100 tracking-tight mb-2">
                 No Audio Loaded
               </h2>
-
-              <p className="text-xs text-stone-500 dark:text-stone-400 max-w-xs mb-4">
-                Select a recording or voice note to begin synchronized transcription and codex illumination.
-              </p>
-
-              {/* High-visibility primary mobile CTA button */}
-              <button
-                type="button"
-                onClick={onTriggerUpload}
-                className="px-6 py-3 rounded-full font-sans font-bold text-sm tracking-wide text-black shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2 select-none mb-3 cursor-pointer"
-                style={{
-                  background: 'var(--accent)',
-                  boxShadow: '0 4px 20px var(--accent-glow)',
-                }}
-                title="Import Audio File"
-                aria-label="Import audio file"
-              >
-                <Upload className="w-4 h-4" />
-                <span>Import Audio</span>
-              </button>
 
               <div className="pt-1 text-[10px] text-stone-400 dark:text-stone-500 font-mono tracking-tight flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
