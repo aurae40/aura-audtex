@@ -125,7 +125,7 @@ export const BookReader: React.FC<BookReaderProps> = ({
         setShowLexFilterDropdown(false);
         setShowOpacitySlider(false);
         setShowSyncPopover(false);
-      }, 4000);
+      }, 3500);
     };
 
     startTimer();
