@@ -73,7 +73,7 @@ export const ENGINE_PROFILES: Record<TranscriberEngine, EngineProfile> = {
   },
 };
 
-export const DEFAULT_HTTPS_TUNNEL = '';
+export const DEFAULT_HTTPS_TUNNEL = 'https://discuss-behavior-drum-surrey.trycloudflare.com';
 
 export function getStoredServerUrl(): string {
   const saved = localStorage.getItem(LOCAL_SERVER_URL_STORAGE);
@@ -232,11 +232,11 @@ export async function transcribeWithLocalServer(
 ): Promise<TranscriptionResult> {
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin.replace(/\/+$/, '') : '';
   const isHttpsOrigin = typeof window !== 'undefined' && window.location.protocol === 'https:';
-  let base = (customUrl || getStoredServerUrl() || currentOrigin).replace(/\/+$/, '');
+  let base = (customUrl || getStoredServerUrl() || (currentOrigin.includes('github.io') ? DEFAULT_HTTPS_TUNNEL : currentOrigin)).replace(/\/+$/, '');
 
-  // Upgrade insecure HTTP endpoint to verified HTTPS tunnel or current origin if on HTTPS origin
-  if (isHttpsOrigin && base.startsWith('http://')) {
-    base = currentOrigin || DEFAULT_HTTPS_TUNNEL;
+  // Upgrade insecure HTTP endpoint to verified HTTPS tunnel or valid origin if on HTTPS origin
+  if (isHttpsOrigin && (base.startsWith('http://') || base.includes('github.io'))) {
+    base = DEFAULT_HTTPS_TUNNEL || currentOrigin;
   }
 
   const model = modelSize || getStoredModelSize() || 'tiny';

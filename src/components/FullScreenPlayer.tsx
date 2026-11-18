@@ -1060,6 +1060,8 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
         backgroundImage: 'radial-gradient(circle at 50% 35%, rgba(245, 158, 11, 0.07) 0%, transparent 70%)',
         paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)',
         paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 12px)',
+        paddingLeft: 'max(env(safe-area-inset-left, 0px), 12px)',
+        paddingRight: 'max(env(safe-area-inset-right, 0px), 12px)',
       }}
     >
       {/* Top Header Bar: Dead-Center Horizontally Placed AuRA with interactive 'u' to EXIT fullscreen */}
@@ -1099,7 +1101,7 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
       </div>
 
       {/* Center Section: Immersive Visualizer Canvas & Controls */}
-      <div className="relative z-10 flex flex-col items-center justify-center text-center my-auto space-y-2 sm:space-y-3 max-w-sm sm:max-w-md md:max-w-lg mx-auto w-full min-h-0 flex-1 overflow-y-auto">
+      <div className="relative z-10 flex flex-col items-center justify-start sm:justify-center text-center space-y-2 sm:space-y-3 max-w-sm sm:max-w-md md:max-w-lg mx-auto w-full min-h-0 flex-1 overflow-y-auto py-1">
         {/* Radial Ambient Sunburst Glow */}
         <div className="relative flex items-center justify-center w-full shrink-0">
           <div
@@ -1109,7 +1111,7 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
           />
 
           {/* Pure Borderless & Backgroundless Canvas Container */}
-          <div className="relative w-full h-36 sm:h-56 max-h-[220px] flex flex-col items-center justify-center shrink-0">
+          <div className="relative w-full h-32 sm:h-52 max-h-[220px] flex flex-col items-center justify-center shrink-0">
             <canvas
               ref={canvasRef}
               className="w-full h-full object-contain"
@@ -1118,8 +1120,8 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
         </div>
 
         {/* 6 Dedicated Visualizer Types Selector - Edgeless Floating Glass Capsule */}
-        <div className="w-full flex items-center justify-start sm:justify-center overflow-x-auto scrollbar-none py-0.5 px-1 shrink-0">
-          <div className="flex items-center gap-1 bg-white/[0.05] p-1 rounded-full mx-auto backdrop-blur-xl shadow-lg shrink-0">
+        <div className="w-full overflow-x-auto scrollbar-none py-1 px-2 shrink-0 flex items-center justify-start sm:justify-center">
+          <div className="inline-flex items-center gap-1 bg-white/[0.05] p-1 rounded-full backdrop-blur-xl shadow-lg shrink-0">
             {VISUALIZER_MODES.map((type) => {
               const Icon = type.icon;
               const isActive = visualMode === type.id;
@@ -1127,7 +1129,7 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
                 <button
                   key={type.id}
                   onClick={() => setVisualMode(type.id)}
-                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-sans transition-all duration-200 shrink-0 ${
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 rounded-full text-[10.5px] sm:text-xs font-sans transition-all duration-200 shrink-0 ${
                     isActive
                       ? 'bg-white/[0.14] font-medium shadow-[0_0_14px_var(--accent-glow)]'
                       : 'text-stone-400 hover:text-stone-200 hover:bg-white/[0.06]'

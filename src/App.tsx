@@ -1244,23 +1244,19 @@ export function App() {
           );
         } catch (builtinError: any) {
           if (builtinError?.name === 'AbortError') throw builtinError;
-          // Infallible auto-recovery: Probe local loopback server if on HTTP,
-          // otherwise seamlessly fall back to on-device Acoustic Illumination Engine!
+          // Infallible auto-recovery: Probe Faster-Whisper server or secure tunnel
           let recovered = false;
-          if (window.location.protocol !== 'https:') {
-            try {
-              const localHealth = await checkLocalServerHealth('http://127.0.0.1:8000');
-              const isLoopback = /^http:\/\/(127\.0\.0\.1|localhost)(?::\d+)?$/i.test(localHealth.urlChecked || '');
-              if (localHealth.online && isLoopback) {
-                const localUrl = localHealth.urlChecked || 'http://127.0.0.1:8000';
-                effectiveEngine = 'local';
-                setTranscriptionStatus('Continuing with local Faster-Whisper on this computer...');
-                result = await transcribeWithLocalServer(file, (st) => setTranscriptionStatus(st), localUrl, undefined, abortCtrl.signal);
-                recovered = true;
-              }
-            } catch {
-              // fallback below
+          try {
+            const serverHealth = await checkLocalServerHealth();
+            if (serverHealth.online && serverHealth.urlChecked) {
+              const activeUrl = serverHealth.urlChecked;
+              effectiveEngine = 'local';
+              setTranscriptionStatus(`Continuing with Faster-Whisper on computer (${serverHealth.gpu || 'INT8'})...`);
+              result = await transcribeWithLocalServer(file, (st) => setTranscriptionStatus(st), activeUrl, undefined, abortCtrl.signal);
+              recovered = true;
             }
+          } catch {
+            // fallback below
           }
           if (!recovered) {
             setTranscriptionStatus('Illuminating audio codex on-device...');
