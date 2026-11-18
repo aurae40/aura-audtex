@@ -82,6 +82,15 @@ export const ImportConsentModal: React.FC<ImportConsentModalProps> = ({
       let status: LocalServerStatus = { online: false };
       try {
         status = await checkLocalServerHealth(serverUrl);
+        // If initial check is offline and page is on HTTPS, check the active secure tunnel
+        if (!status.online && typeof window !== 'undefined' && window.location.protocol === 'https:') {
+          const tunnelUrl = 'https://discuss-behavior-drum-surrey.trycloudflare.com';
+          const tunnelStatus = await checkLocalServerHealth(tunnelUrl);
+          if (tunnelStatus.online) {
+            status = tunnelStatus;
+            setServerUrl(tunnelUrl);
+          }
+        }
         setServerStatus(status);
         if (status.online && status.urlChecked) {
           setServerUrl(status.urlChecked);
@@ -92,7 +101,7 @@ export const ImportConsentModal: React.FC<ImportConsentModalProps> = ({
         setIsCheckingServer(false);
       }
 
-      // Automatically select local Faster-Whisper if online on this computer; otherwise fallback to builtin
+      // Automatically select local Faster-Whisper if online; otherwise fallback to builtin
       if (status.online) {
         setSelectedEngine('local');
       } else {
@@ -313,7 +322,19 @@ export const ImportConsentModal: React.FC<ImportConsentModalProps> = ({
                   </button>
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                  <span className="text-[9.5px] text-stone-500 font-mono">LAN / Local:</span>
+                  <span className="text-[9.5px] text-stone-500 font-mono">Presets:</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const tunnelUrl = 'https://discuss-behavior-drum-surrey.trycloudflare.com';
+                      setServerUrl(tunnelUrl);
+                      checkServer(tunnelUrl);
+                    }}
+                    className="text-[9.5px] font-mono px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold transition flex items-center gap-1"
+                  >
+                    ⚡ Secure Cloudflare Tunnel (Mobile / Remote)
+                  </button>
                   <button
                     type="button"
                     onClick={(e) => {
