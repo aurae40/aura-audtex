@@ -1058,10 +1058,12 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
       style={{
         backgroundColor: '#040302',
         backgroundImage: 'radial-gradient(circle at 50% 35%, rgba(245, 158, 11, 0.07) 0%, transparent 70%)',
+        paddingTop: 'max(env(safe-area-inset-top, 0px), 12px)',
+        paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 12px)',
       }}
     >
-      {/* Hardware Status Bar */}
-      <div className="relative z-10 w-full opacity-90">
+      {/* Hardware Status Bar (Only in desktop showcase mode, never on real mobile) */}
+      <div className="relative z-10 w-full opacity-90 hidden md:block">
         <DeviceStatusBar
           isPlaying={isPlaying}
           currentTimeFormatted={formatTime(currentTime)}

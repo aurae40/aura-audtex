@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Wifi, WifiOff, Volume2 } from 'lucide-react';
 import { getActiveCountryHeritage } from '../services/countryService';
-import { detectHardwareScreen, type HardwareScreenProfile } from '../services/hardwareDetectionService';
+import { detectHardwareScreen, isPhysicalMobileDevice, type HardwareScreenProfile } from '../services/hardwareDetectionService';
+import { SovereignDynamicCapsule } from './SovereignDynamicCapsule';
 import type { CountryHeritage } from '../types';
 
 interface DeviceStatusBarProps {
@@ -97,6 +98,16 @@ export const DeviceStatusBar: React.FC<DeviceStatusBarProps> = ({
     };
   }, []);
 
+  // CRITICAL CONTEXT-AWARE DEVICE CHECK:
+  // On real physical mobile devices (iPhone, Android, mobile Safari, PWA) and narrow mobile screens,
+  // the OS native hardware status bar is ALREADY visible at the top of the physical screen.
+  // Rendering a simulated status bar creates an ugly duplicate clock, duplicate network, and duplicate battery row!
+  // Suppress DeviceStatusBar entirely on physical mobile devices and narrow mobile viewports.
+  const isMobile = isPhysicalMobileDevice() || (typeof window !== 'undefined' && window.innerWidth <= 768);
+  if (isMobile && !overridePlatform) {
+    return null;
+  }
+
   return (
     <div
       className={`w-full flex items-center justify-between select-none transition-all duration-300 relative z-50 ${
@@ -148,141 +159,11 @@ export const DeviceStatusBar: React.FC<DeviceStatusBarProps> = ({
           2. CENTER: HARDWARE-ADAPTED SOVEREIGN DYNAMIC DISPLAY
          ======================================================== */}
       <div className="flex-1 flex justify-center items-center px-1">
-        {isIOSHardware ? (
-          /* --- IPHONE HARDWARE ADAPTATION: Apple Jet-Black Dynamic Island --- */
-          <button
-            type="button"
-            onClick={onOpenCountryModal}
-            className="group/island relative flex items-center justify-center gap-2 px-3.5 py-1 rounded-full bg-black text-white border border-white/15 shadow-[0_2px_14px_rgba(0,0,0,0.85)] hover:shadow-[0_4px_18px_rgba(0,0,0,0.95)] hover:scale-[1.02] active:scale-95 transition-all duration-300 cursor-pointer select-none max-w-[210px] h-[28px] sm:h-[30px]"
-            title={`iOS Dynamic Island: ${country.name} · Tap to change country`}
-            aria-label={`Sovereign Dynamic Island: ${country.name}. Tap to change country.`}
-          >
-            {/* Pulsing Accent Glow Dot */}
-            <span
-              className="w-2 h-2 rounded-full shrink-0 transition-all duration-300 animate-pulse"
-              style={{
-                backgroundColor: country.accent,
-                boxShadow: `0 0 8px ${country.accent}`,
-              }}
-              aria-hidden="true"
-            />
-
-            {/* Kinetic Dancing Sovereign Country Letters */}
-            <div className="flex items-center font-sans font-semibold text-[11px] sm:text-[12px] tracking-tight truncate">
-              {country.name.split('').map((char, idx) => {
-                if (char === ' ') return <span key={idx} className="w-1 inline-block" />;
-                const color = country.colors[idx % country.colors.length] || country.accent;
-                return (
-                  <span
-                    key={idx}
-                    style={{
-                      color,
-                      animationDelay: `${idx * 0.075}s`,
-                    }}
-                    className="country-letter-dance"
-                  >
-                    {char}
-                  </span>
-                );
-              })}
-            </div>
-
-            {/* Live Mini Equalizer Bars when Playing */}
-            {isPlaying && (
-              <div className="flex items-end gap-[2px] h-2.5 ml-0.5 shrink-0">
-                <div className="w-[2px] h-2 bg-current animate-pulse rounded-full" style={{ color: country.accent }} />
-                <div className="w-[2px] h-3 bg-current animate-pulse delay-75 rounded-full" style={{ color: country.accent }} />
-                <div className="w-[2px] h-1.5 bg-current animate-pulse delay-150 rounded-full" style={{ color: country.accent }} />
-              </div>
-            )}
-          </button>
-        ) : isAndroidHardware ? (
-          /* --- ANDROID HARDWARE ADAPTATION: Material You Sovereign Capsule --- */
-          <button
-            type="button"
-            onClick={onOpenCountryModal}
-            className="group/android-chip relative flex items-center justify-center gap-2 px-3 py-1 rounded-2xl bg-stone-900/90 dark:bg-stone-800/90 text-stone-100 border border-white/10 shadow-sm hover:shadow-md hover:scale-[1.02] active:scale-95 transition-all duration-200 cursor-pointer select-none max-w-[210px] h-[28px]"
-            title={`Android Material Sovereign Capsule: ${country.name} · Tap to change`}
-            aria-label={`Android Sovereign Capsule: ${country.name}. Tap to change.`}
-          >
-            {/* Material Glowing Nation Ring */}
-            <span
-              className="w-2 h-2 rounded-full shrink-0 transition-all duration-300 ring-2 ring-white/20"
-              style={{ backgroundColor: country.accent }}
-              aria-hidden="true"
-            />
-
-            {/* Sovereign Nation Name in Android Material Typography */}
-            <div className="flex items-center font-sans font-medium text-[11px] sm:text-[12px] tracking-normal truncate">
-              {country.name.split('').map((char, idx) => {
-                if (char === ' ') return <span key={idx} className="w-1 inline-block" />;
-                const color = country.colors[idx % country.colors.length] || country.accent;
-                return (
-                  <span
-                    key={idx}
-                    style={{
-                      color,
-                      animationDelay: `${idx * 0.075}s`,
-                    }}
-                    className="country-letter-dance"
-                  >
-                    {char}
-                  </span>
-                );
-              })}
-            </div>
-
-            {isPlaying && (
-              <div className="flex items-end gap-[1.5px] h-2.5 ml-0.5 shrink-0">
-                <div className="w-[2px] h-2 bg-current animate-pulse rounded-full" style={{ color: country.accent }} />
-                <div className="w-[2px] h-2.5 bg-current animate-pulse delay-75 rounded-full" style={{ color: country.accent }} />
-              </div>
-            )}
-          </button>
-        ) : (
-          /* --- DESKTOP ADAPTIVE VIEW: Universal Illuminated Dynamic Island --- */
-          <button
-            type="button"
-            onClick={onOpenCountryModal}
-            className="group/island relative flex items-center justify-center gap-2 px-3.5 py-1 rounded-full bg-black text-white border border-white/15 shadow-[0_2px_14px_rgba(0,0,0,0.85)] hover:shadow-[0_4px_18px_rgba(0,0,0,0.95)] hover:scale-[1.02] active:scale-95 transition-all duration-300 cursor-pointer select-none max-w-[210px] h-[28px] sm:h-[30px]"
-            title={`Dynamic Island: ${country.name} · Tap to change country`}
-            aria-label={`Sovereign Dynamic Island: ${country.name}. Tap to change country.`}
-          >
-            <span
-              className="w-2 h-2 rounded-full shrink-0 transition-all duration-300 animate-pulse"
-              style={{
-                backgroundColor: country.accent,
-                boxShadow: `0 0 8px ${country.accent}`,
-              }}
-              aria-hidden="true"
-            />
-            <div className="flex items-center font-sans font-semibold text-[11px] sm:text-[12px] tracking-tight truncate">
-              {country.name.split('').map((char, idx) => {
-                if (char === ' ') return <span key={idx} className="w-1 inline-block" />;
-                const color = country.colors[idx % country.colors.length] || country.accent;
-                return (
-                  <span
-                    key={idx}
-                    style={{
-                      color,
-                      animationDelay: `${idx * 0.075}s`,
-                    }}
-                    className="country-letter-dance"
-                  >
-                    {char}
-                  </span>
-                );
-              })}
-            </div>
-            {isPlaying && (
-              <div className="flex items-end gap-[2px] h-2.5 ml-0.5 shrink-0">
-                <div className="w-[2px] h-2 bg-current animate-pulse rounded-full" style={{ color: country.accent }} />
-                <div className="w-[2px] h-3 bg-current animate-pulse delay-75 rounded-full" style={{ color: country.accent }} />
-                <div className="w-[2px] h-1.5 bg-current animate-pulse delay-150 rounded-full" style={{ color: country.accent }} />
-              </div>
-            )}
-          </button>
-        )}
+        <SovereignDynamicCapsule
+          country={country}
+          isPlaying={isPlaying}
+          onOpenCountryModal={onOpenCountryModal}
+        />
       </div>
 
       {/* ========================================================

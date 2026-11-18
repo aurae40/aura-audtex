@@ -6,12 +6,24 @@ export interface HardwareScreenProfile {
   isIOS: boolean;
   isAndroid: boolean;
   isDesktop: boolean;
+  isPhysicalMobile: boolean;
   hasDynamicIsland: boolean;
   hasNotch: boolean;
   isStandalonePWA: boolean;
   screenWidth: number;
   screenHeight: number;
   pixelRatio: number;
+}
+
+export function isPhysicalMobileDevice(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isAndroid = /Android/i.test(ua);
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+  const isTouchDevice = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || 'ontouchstart' in window;
+  const isNarrowScreen = window.innerWidth <= 768;
+  return isIOS || isAndroid || isMobileUA || Boolean(isTouchDevice) || isNarrowScreen;
 }
 
 /**
@@ -26,6 +38,7 @@ export function detectHardwareScreen(): HardwareScreenProfile {
       isIOS: false,
       isAndroid: false,
       isDesktop: true,
+      isPhysicalMobile: false,
       hasDynamicIsland: false,
       hasNotch: false,
       isStandalonePWA: false,
@@ -100,6 +113,7 @@ export function detectHardwareScreen(): HardwareScreenProfile {
     isIOS,
     isAndroid,
     isDesktop,
+    isPhysicalMobile: isIOS || isAndroid || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) || (navigator.maxTouchPoints > 0 || 'ontouchstart' in window) || screenW <= 768,
     hasDynamicIsland: isDynamicIslandIPhone,
     hasNotch,
     isStandalonePWA,
