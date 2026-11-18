@@ -174,9 +174,14 @@ export async function checkLocalServerHealth(targetUrl?: string): Promise<LocalS
       candidateUrls.push(currentOrigin);
     }
   } else {
-    // On local HTTP origins (e.g. localhost:4173), probe direct local machine ports first
+    // On local HTTP origins (e.g. localhost:4173 or 192.168.0.100:4173), probe local ports & LAN IP
     if (!candidateUrls.includes('http://127.0.0.1:8000')) candidateUrls.push('http://127.0.0.1:8000');
     if (!candidateUrls.includes('http://localhost:8000')) candidateUrls.push('http://localhost:8000');
+    if (typeof window !== 'undefined' && window.location.hostname && !['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+      const hostServer = `http://${window.location.hostname}:8000`;
+      if (!candidateUrls.includes(hostServer)) candidateUrls.push(hostServer);
+    }
+    if (!candidateUrls.includes('http://192.168.0.100:8000')) candidateUrls.push('http://192.168.0.100:8000');
     if (currentOrigin && !candidateUrls.includes(currentOrigin)) candidateUrls.push(currentOrigin);
     if (!candidateUrls.includes(DEFAULT_HTTPS_TUNNEL)) candidateUrls.push(DEFAULT_HTTPS_TUNNEL);
   }

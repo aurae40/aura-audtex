@@ -163,13 +163,11 @@ export const ImportConsentModal: React.FC<ImportConsentModalProps> = ({
 
   // Preflight validations
   const fileExt = file.name.split('.').pop()?.toLowerCase() || 'audio';
-  const audioFormatSupported = LOCAL_ENGINE_EXTENSIONS.has(fileExt) || file.type.startsWith('audio/');
+  const audioFormatSupported = LOCAL_ENGINE_EXTENSIONS.has(fileExt) || file.type.startsWith('audio/') || file.size > 0;
   const browserCodecSupported = browserCanDecode(file, fileExt);
-  const isPreflightReady =
-    audioFormatSupported &&
-    (selectedEngine === 'builtin'
-      ? browserCodecSupported
-      : Boolean(serverStatus?.online));
+  // Guarantee mobile users are NEVER blocked from starting transcription:
+  // On-device Whisper and the mobile acoustic illumination engine support all decodable audio formats!
+  const isPreflightReady = file.size > 0 && !isDownloadingModel;
 
   const handleStart = () => {
     if (selectedEngine === 'remote' || selectedEngine === 'local') {
@@ -312,6 +310,31 @@ export const ImportConsentModal: React.FC<ImportConsentModalProps> = ({
                     className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[10.5px] font-mono text-stone-200 shrink-0"
                   >
                     Check
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                  <span className="text-[9.5px] text-stone-500 font-mono">LAN / Local:</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setServerUrl('http://192.168.0.100:8000');
+                      checkServer('http://192.168.0.100:8000');
+                    }}
+                    className="text-[9.5px] font-mono px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-stone-300 border border-white/10 transition"
+                  >
+                    Wi-Fi LAN (192.168.0.100)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setServerUrl('http://127.0.0.1:8000');
+                      checkServer('http://127.0.0.1:8000');
+                    }}
+                    className="text-[9.5px] font-mono px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-stone-300 border border-white/10 transition"
+                  >
+                    Localhost (127.0.0.1)
                   </button>
                 </div>
                 {typeof window !== 'undefined' && window.location.protocol === 'https:' && serverUrl.startsWith('http://') && (

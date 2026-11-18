@@ -154,28 +154,71 @@ export async function getBuiltinWhisperPipeline(
     env.allowLocalModels = false;
     env.useBrowserCache = true;
     if (env.backends && env.backends.onnx && env.backends.onnx.wasm) {
-      env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/dist/';
       env.backends.onnx.wasm.proxy = false;
       env.backends.onnx.wasm.numThreads = 1;
     }
   }
 
-  transcriberPipeline = await pipeline('automatic-speech-recognition', modelId, {
-    dtype: 'q8',
-    device: 'wasm',
-    progress_callback: (p: any) => {
-      if (p.status === 'initiate') {
-        onProgress?.(`Downloading built-in speech model (${p.file || ''})...`);
-      } else if (p.status === 'progress') {
-        const pct = Math.round(p.progress || 0);
-        onProgress?.(`Downloading built-in speech model: ${pct}%...`);
-      } else if (p.status === 'done') {
-        onProgress?.('Model downloaded & cached in local browser vault.');
-      } else if (p.status === 'ready') {
-        onProgress?.('Built-in speech neural net ready.');
-      }
-    },
-  });
+  // Detect WebGPU acceleration (supported in iOS 17.4+ and modern mobile browsers)
+  const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
+  const targetDevice = hasWebGPU ? 'webgpu' : 'wasm';
+
+  try {
+    transcriberPipeline = await pipeline('automatic-speech-recognition', modelId, {
+      dtype: 'q4',
+      device: targetDevice,
+      progress_callback: (p: any) => {
+        if (p.status === 'initiate') {
+          onProgress?.(`Downloading built-in speech neural model (${p.file || ''})...`);
+        } else if (p.status === 'progress') {
+          const pct = Math.round(p.progress || 0);
+          onProgress?.(`Downloading speech neural net: ${pct}%...`);
+        } else if (p.status === 'done') {
+          onProgress?.('Model downloaded & cached in local browser vault.');
+        } else if (p.status === 'ready') {
+          onProgress?.('Built-in speech neural net ready.');
+        }
+      },
+    });
+  } catch (initErr) {
+    console.warn('Primary WebGPU/q4 pipeline warning, falling back to wasm q4:', initErr);
+    try {
+      transcriberPipeline = await pipeline('automatic-speech-recognition', modelId, {
+        dtype: 'q4',
+        device: 'wasm',
+        progress_callback: (p: any) => {
+          if (p.status === 'initiate') {
+            onProgress?.(`Downloading speech neural model (${p.file || ''})...`);
+          } else if (p.status === 'progress') {
+            const pct = Math.round(p.progress || 0);
+            onProgress?.(`Downloading speech neural net: ${pct}%...`);
+          } else if (p.status === 'done') {
+            onProgress?.('Model downloaded & cached in local browser vault.');
+          } else if (p.status === 'ready') {
+            onProgress?.('Built-in speech neural net ready.');
+          }
+        },
+      });
+    } catch (wasmQ4Err) {
+      console.warn('Wasm q4 warning, falling back to universal wasm quantized:', wasmQ4Err);
+      transcriberPipeline = await pipeline('automatic-speech-recognition', modelId, {
+        dtype: 'quantized',
+        device: 'wasm',
+        progress_callback: (p: any) => {
+          if (p.status === 'initiate') {
+            onProgress?.(`Downloading universal speech neural model (${p.file || ''})...`);
+          } else if (p.status === 'progress') {
+            const pct = Math.round(p.progress || 0);
+            onProgress?.(`Downloading speech neural net: ${pct}%...`);
+          } else if (p.status === 'done') {
+            onProgress?.('Model downloaded & cached in local browser vault.');
+          } else if (p.status === 'ready') {
+            onProgress?.('Built-in speech neural net ready.');
+          }
+        },
+      });
+    }
+  }
 
   currentModelId = modelId;
   return transcriberPipeline;

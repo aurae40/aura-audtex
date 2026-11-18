@@ -40,7 +40,7 @@ async def add_private_network_headers(request: Request, call_next):
     return response
 
 # Secure CORS: Restrict to local development, LAN IP ranges, Beacon Host and Cloudflare tunnel
-ALLOWED_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|.*\.beacon\.host|.*\.trycloudflare\.com)(:\d+)?$"
+ALLOWED_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|.*\.github\.io|.*\.beacon\.host|.*\.trycloudflare\.com)(:\d+)?$"
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,6 +50,7 @@ app.add_middleware(
         "http://localhost:4173",
         "http://127.0.0.1:4173",
         "https://aura-player.beacon.host",
+        "https://aurae40.github.io",
     ],
     allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=False,
@@ -662,8 +663,8 @@ if __name__ == "__main__":
     get_whisper_model("tiny")
     print("[+] Transcriber ready for incoming requests!\n")
 
-    bind_host = os.environ.get("AURA_HOST", "127.0.0.1")
+    bind_host = os.environ.get("AURA_HOST", "0.0.0.0")
     bind_port = int(os.environ.get("AURA_PORT", 8000))
-    print(f"[*] Binding server to http://{bind_host}:{bind_port} (secure local default)...")
+    print(f"[*] Binding server to http://{bind_host}:{bind_port} (LAN & local access enabled)...")
     import uvicorn
     uvicorn.run(app, host=bind_host, port=bind_port)
