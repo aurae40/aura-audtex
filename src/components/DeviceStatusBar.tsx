@@ -110,7 +110,7 @@ export const DeviceStatusBar: React.FC<DeviceStatusBarProps> = ({
 
   return (
     <div
-      className={`w-full ${overridePlatform ? 'flex' : 'hidden md:flex'} items-center justify-between select-none transition-all duration-300 relative z-50 ${
+      className={`device-status-bar w-full ${overridePlatform ? 'flex' : 'hidden md:flex'} items-center justify-between select-none transition-all duration-300 relative z-50 ${
         isIOSHardware
           ? 'px-4 sm:px-5 font-sans' // iOS Native Status Bar Geometry
           : isAndroidHardware
