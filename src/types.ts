@@ -19,6 +19,14 @@ export interface WordToken {
   start: number;
   end: number;
   index: number;
+  speaker?: string; // e.g. "Speaker 1", "Speaker 2", or custom name
+}
+
+export interface SpeakerInfo {
+  id: string;
+  label: string;
+  color: string;
+  avatar?: string;
 }
 
 export interface Marginalia {
@@ -143,6 +151,7 @@ export interface RecordingSession {
   lastPlayedAt?: string;
   lastPlaybackPositionSec?: number;
   tokens: WordToken[];
+  speakers?: Record<string, SpeakerInfo>;
   marginalia: Marginalia[];
   dossier: MilestoneDossier;
   lexicon: Record<string, LexiconEntry>;

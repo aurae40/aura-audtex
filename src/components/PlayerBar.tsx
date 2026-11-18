@@ -15,6 +15,9 @@ import {
   Mic,
   SlidersHorizontal,
   X,
+  Radio,
+  Globe,
+  Square,
 } from 'lucide-react';
 import { WaveformRibbon } from './WaveformRibbon';
 
@@ -44,6 +47,10 @@ interface PlayerBarProps {
   onToggleSilenceVacuum?: () => void;
   silenceTimeSavedSec?: number;
   onQuickVoiceDictate?: () => void;
+  isLiveRecording?: boolean;
+  liveRecordingDuration?: number;
+  onToggleLiveMeeting?: () => void;
+  onOpenWebLinkModal?: () => void;
 }
 const NOISE_LABELS: Record<BrainNoiseType, string> = {
   gamma40: '40Hz Gamma',
@@ -79,6 +86,10 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   onToggleSilenceVacuum,
   silenceTimeSavedSec = 0,
   onQuickVoiceDictate,
+  isLiveRecording = false,
+  liveRecordingDuration = 0,
+  onToggleLiveMeeting,
+  onOpenWebLinkModal,
 }) => {
   const [showPlayerOptions, setShowPlayerOptions] = useState(false);
   const playerOptionsRef = useRef<HTMLDivElement | null>(null);
@@ -141,6 +152,33 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
       {/* Primary transport remains touch-safe; less-frequent controls live in one sheet. */}
       <div className="relative flex items-center justify-between w-full px-4 py-1">
+        {/* Live Meeting / Lecture Mode Microphone Toggle */}
+        {onToggleLiveMeeting && (
+          <button
+            onClick={onToggleLiveMeeting}
+            className={`absolute left-1 w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95 z-10 ${
+              isLiveRecording
+                ? 'bg-rose-500 text-white shadow-[0_0_18px_rgba(244,63,94,0.7)] animate-pulse'
+                : 'text-stone-500 hover:text-stone-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'
+            }`}
+            title={
+              isLiveRecording
+                ? `Recording Live Meeting [${Math.floor(liveRecordingDuration / 60)}:${(Math.floor(liveRecordingDuration % 60)).toString().padStart(2, '0')}] — Click to Stop & Save`
+                : 'Live Meeting & Lecture Mode (Zero-Latency WebGPU Mic)'
+            }
+            aria-label={isLiveRecording ? 'Stop Live Recording' : 'Start Live Meeting Mode'}
+          >
+            {isLiveRecording ? (
+              <div className="flex items-center justify-center relative">
+                <Square className="w-3.5 h-3.5 fill-current" />
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              </div>
+            ) : (
+              <Radio className="w-4.5 h-4.5" />
+            )}
+          </button>
+        )}
+
         {/* Three large primary transport controls (touch-safe >= 48px) */}
         <div className="flex items-center justify-center gap-6 sm:gap-8 mx-auto">
           <button
@@ -242,6 +280,18 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
               >
                 <Mic className="w-3.5 h-3.5 text-amber-400" />
                 <span>Add spoken note</span>
+              </button>
+            )}
+            {onOpenWebLinkModal && (
+              <button
+                onClick={() => {
+                  setShowPlayerOptions(false);
+                  onOpenWebLinkModal();
+                }}
+                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center gap-2 text-xs text-stone-200"
+              >
+                <Globe className="w-3.5 h-3.5 text-sky-400" />
+                <span>Import Web Link / Podcast</span>
               </button>
             )}
             <button

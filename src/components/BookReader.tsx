@@ -3,6 +3,7 @@ import type { WordToken, Marginalia, UserHighlight, LexiconEntry } from '../type
 import { DictionaryCard, type PopoverPosition } from './DictionaryCard';
 import { normalizeWordToken, lemmatize } from '../services/dictionaryPackService';
 import { ArtisanHeadphonesIcon } from './ArtisanHeadphonesIcon';
+import { getSpeakerStyle } from '../services/diarizationService';
 import {
   Sparkles,
   Sliders,
@@ -14,6 +15,8 @@ import {
   Filter,
   Timer,
   Mic,
+  User,
+  Edit3,
 } from 'lucide-react';
 
 interface BookReaderProps {
@@ -43,6 +46,8 @@ interface BookReaderProps {
   onTriggerUpload?: () => void;
   isPlaying?: boolean;
   onPause?: () => void;
+  speakers?: Record<string, { id: string; label: string; color: string }>;
+  onUpdateSpeakerName?: (id: string, newName: string) => void;
   onResume?: () => void;
   onUpdateEntry?: (id: string, updates: Partial<LexiconEntry>) => void;
   language?: string;
@@ -77,10 +82,16 @@ export const BookReader: React.FC<BookReaderProps> = ({
   onDownloadVocabulary,
   isDownloadingVocabulary = false,
   language = 'en',
+  speakers,
+  onUpdateSpeakerName,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeWordRef = useRef<HTMLSpanElement | null>(null);
   const lastScrolledIndexRef = useRef<number>(-1);
+
+  // Speaker Renaming State
+  const [renamingSpeakerId, setRenamingSpeakerId] = useState<string | null>(null);
+  const [speakerRenameValue, setSpeakerRenameValue] = useState('');
 
   const focusBeam = true;
   const [focusOpacity, setFocusOpacity] = useState<number>(0.97);
@@ -1024,13 +1035,20 @@ export const BookReader: React.FC<BookReaderProps> = ({
               </div>
             </div>
           ) : (
-            <p>
-              {tokens.map((tok) => {
+            <p className="leading-relaxed">
+              {tokens.map((tok, idx) => {
               const isActive = tok.index === activeIndex;
               const isPast = tok.end < currentTime;
               const userHighlight = getHighlightForIndex(tok.index);
               const lexEntry = getLexiconEntry(tok.word);
               const showDotted = isLexiconVisible(lexEntry);
+
+              // Automated Speaker Diarization separation
+              const prevTok = idx > 0 ? tokens[idx - 1] : null;
+              const isNewSpeakerTurn = tok.speaker && (!prevTok || prevTok.speaker !== tok.speaker);
+              const speakerInfo = tok.speaker ? (speakers?.[tok.speaker] || { id: tok.speaker, label: tok.speaker, color: '#f59e0b' }) : null;
+              const speakerStyle = tok.speaker ? getSpeakerStyle(tok.speaker) : null;
+              const speakerDisplayLabel = speakerInfo?.label || tok.speaker;
 
               const wordStyle: React.CSSProperties = isActive
                 ? {
@@ -1057,36 +1075,118 @@ export const BookReader: React.FC<BookReaderProps> = ({
                 : { opacity: 0.9 };
 
               return (
-                <span
-                  key={tok.index}
-                  ref={isActive ? activeWordRef : null}
-                  data-word-index={tok.index}
-                  onClick={(e) => handleWordClick(tok, e)}
-                  onMouseEnter={(e) => handleWordMouseEnter(tok, e)}
-                  onMouseLeave={handleWordMouseLeave}
-                  style={wordStyle}
-                  className={`inline-block mr-1 cursor-pointer transition-all duration-200 select-text ${
-                    isActive ? 'word-active scale-105 z-10' : 'hover:opacity-100'
-                  } ${
-                    showDotted
-                      ? 'border-b-2 border-dotted border-amber-700/60 font-medium'
-                      : ''
-                  } ${userHighlight ? 'border-b border-black/40 font-medium' : ''}`}
-                  title={
-                    lexEntry
-                      ? `"${lexEntry.term}" — Hover or tap for instant meaning (auto-pauses audio)`
-                      : userHighlight?.note
-                      ? `Note: ${userHighlight.note}`
-                      : `Click '${tok.word}' to seek or look up`
-                  }
-                >
-                  {tok.word}
-                </span>
+                <React.Fragment key={tok.index}>
+                  {isNewSpeakerTurn && speakerStyle && (
+                    <span className="block mt-4 mb-1.5 first:mt-0 select-none">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenamingSpeakerId(tok.speaker!);
+                          setSpeakerRenameValue(speakerDisplayLabel || tok.speaker!);
+                        }}
+                        style={{
+                          backgroundColor: speakerStyle.bg,
+                          color: speakerStyle.text,
+                          borderColor: speakerStyle.border,
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold tracking-wide border shadow-2xs hover:scale-105 active:scale-95 transition-all cursor-pointer focus:outline-none"
+                        title={`Speaker: ${speakerDisplayLabel} — Click to rename`}
+                      >
+                        <User className="w-3 h-3" />
+                        <span>{speakerDisplayLabel}</span>
+                        <span className="text-[9px] opacity-75 font-mono">
+                          [{Math.floor(tok.start / 60)}:{(Math.floor(tok.start % 60)).toString().padStart(2, '0')}]
+                        </span>
+                        <Edit3 className="w-2.5 h-2.5 opacity-60 ml-0.5" />
+                      </button>
+                    </span>
+                  )}
+                  <span
+                    ref={isActive ? activeWordRef : null}
+                    data-word-index={tok.index}
+                    onClick={(e) => handleWordClick(tok, e)}
+                    onMouseEnter={(e) => handleWordMouseEnter(tok, e)}
+                    onMouseLeave={handleWordMouseLeave}
+                    style={wordStyle}
+                    className={`inline-block mr-1 cursor-pointer transition-all duration-200 select-text ${
+                      isActive ? 'word-active scale-105 z-10' : 'hover:opacity-100'
+                    } ${
+                      showDotted
+                        ? 'border-b-2 border-dotted border-amber-700/60 font-medium'
+                        : ''
+                    } ${userHighlight ? 'border-b border-black/40 font-medium' : ''}`}
+                    title={
+                      lexEntry
+                        ? `"${lexEntry.term}" — Hover or tap for instant meaning (auto-pauses audio)`
+                        : userHighlight?.note
+                        ? `Note: ${userHighlight.note}`
+                        : `Click '${tok.word}' to seek or look up`
+                    }
+                  >
+                    {tok.word}
+                  </span>
+                </React.Fragment>
               );
             })}
           </p>
         )}
         </div>
+
+        {/* Inline Speaker Renaming Dialog */}
+        {renamingSpeakerId && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150 select-none">
+            <div className="w-full max-w-xs bg-stone-900 border border-amber-500/40 rounded-3xl p-5 shadow-2xl space-y-3.5 text-stone-100">
+              <div className="flex items-center justify-between text-xs font-semibold text-amber-300">
+                <span className="flex items-center gap-1.5">
+                  <User className="w-4 h-4 text-amber-400" />
+                  <span>Rename Speaker</span>
+                </span>
+                <button
+                  onClick={() => setRenamingSpeakerId(null)}
+                  className="p-1 text-stone-400 hover:text-white rounded-lg hover:bg-white/10"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <input
+                type="text"
+                value={speakerRenameValue}
+                onChange={(e) => setSpeakerRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && speakerRenameValue.trim()) {
+                    onUpdateSpeakerName?.(renamingSpeakerId, speakerRenameValue.trim());
+                    setRenamingSpeakerId(null);
+                  }
+                }}
+                placeholder="Speaker Name (e.g. Elena, Host)"
+                autoFocus
+                className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-white/20 text-xs text-stone-100 focus:outline-none focus:border-amber-400"
+              />
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setRenamingSpeakerId(null)}
+                  className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-stone-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (speakerRenameValue.trim()) {
+                      onUpdateSpeakerName?.(renamingSpeakerId, speakerRenameValue.trim());
+                      setRenamingSpeakerId(null);
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Saved Session Summary Banner */}
         {userSummary && (
