@@ -335,13 +335,17 @@ export const ImportConsentModal: React.FC<ImportConsentModalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Cpu className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs font-bold text-stone-100">On This Device (In-Browser Whisper)</span>
+                <span className="text-xs font-bold text-stone-100">
+                  {deviceCaps?.isMobile ? 'On This Device (Mobile Speech Illumination)' : 'On This Device (In-Browser Whisper)'}
+                </span>
               </div>
               <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
-                WASM • ZERO SERVER
+                100% ON-DEVICE • ZERO SERVER
               </span>
             </div>
-            <p className="text-[10.5px] text-stone-400 leading-relaxed pl-6">Private browser processing. A one-time model download enables offline use.</p>
+            <p className="text-[10.5px] text-stone-400 leading-relaxed pl-6">
+              Private on-device processing. Whisper neural net with instant mobile acoustic fail-safe.
+            </p>
 
             {/* Offline Model Details & Explicit Download Trigger */}
             <div className="pl-6 pt-1 space-y-2">

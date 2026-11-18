@@ -21,7 +21,7 @@ export interface TranscriptionResult {
 }
 
 export type TranscriberEngine = 'builtin' | 'local' | 'remote';
-export { transcribeWithBuiltinWhisper } from './builtinWhisperService';
+export { transcribeWithBuiltinWhisper, transcribeWithAcousticEngine } from './builtinWhisperService';
 
 const ENGINE_STORAGE_KEY = 'aura_transcriber_engine';
 const LOCAL_SERVER_URL_STORAGE = 'aura_local_server_url';

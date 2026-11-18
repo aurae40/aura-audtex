@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aura-audtex-pwa-v7';
+const CACHE_NAME = 'aura-audtex-pwa-v8';
 const assetUrl = (path) => new URL(path, self.registration.scope).toString();
 const STATIC_ASSETS = ['index.html', 'manifest.json', 'favicon.svg', 'icons.svg'].map(assetUrl);
 
@@ -12,6 +12,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME && !key.includes('transformers') && !key.includes('onnx')) {
+            console.log('[SW] Evicting legacy cache:', key);
             return caches.delete(key);
           }
         })
@@ -28,6 +29,19 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   if (url.pathname.endsWith('/health') || url.pathname.endsWith('/transcribe')) return;
   if (url.protocol === 'chrome-extension:' || url.protocol === 'blob:') return;
+
+  // CRITICAL FOR SAFARI/IOS WEBKIT:
+  // Bypass Service Worker completely for external model weights CDNs and Range requests.
+  // Safari WebKit fails with "TypeError: Failed to fetch" if a Service Worker intercepts cross-origin Range requests.
+  if (
+    url.hostname.includes('jsdelivr.net') ||
+    url.hostname.includes('huggingface.co') ||
+    url.hostname.includes('hf.co') ||
+    url.hostname.includes('unpkg.com') ||
+    event.request.headers.has('range')
+  ) {
+    return;
+  }
 
   // Network-First for HTML navigation so updates appear immediately
   if (event.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')) {

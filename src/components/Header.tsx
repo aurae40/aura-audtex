@@ -85,16 +85,18 @@ export const Header: React.FC<HeaderProps> = ({
       }}
     >
       {/* 1. Desktop Showcase Only: Simulated Status Bar when previewed in desktop mockup frame.
-             On real mobile devices, this is completely suppressed to avoid duplicate clock/battery! */}
+             On real mobile devices, this is completely suppressed via both JS and CSS to avoid duplicate clock/battery! */}
       {!isMobile && (
-        <DeviceStatusBar
-          isPlaying={isPlaying}
-          currentTimeFormatted={currentTimeFormatted}
-          onOpenVault={onOpenVault}
-          onOpenCountryModal={onOpenCountryModal}
-          isFullscreen={isFullscreen}
-          onToggleFullscreen={toggleHardwareFullscreen}
-        />
+        <div className="hidden md:block w-full">
+          <DeviceStatusBar
+            isPlaying={isPlaying}
+            currentTimeFormatted={currentTimeFormatted}
+            onOpenVault={onOpenVault}
+            onOpenCountryModal={onOpenCountryModal}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={toggleHardwareFullscreen}
+          />
+        </div>
       )}
 
       {/* Global action area: AuRA brand, Sovereign Capsule (on mobile), library, appearance, and theme toggle */}
