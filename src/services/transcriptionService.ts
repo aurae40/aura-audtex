@@ -169,7 +169,7 @@ export async function checkLocalServerHealth(targetUrl?: string): Promise<LocalS
     if (configured && !candidateUrls.includes(configured) && !configured.startsWith('http://')) {
       candidateUrls.push(configured);
     }
-    if (currentOrigin && !candidateUrls.includes(currentOrigin)) {
+    if (currentOrigin && !currentOrigin.includes('github.io') && !candidateUrls.includes(currentOrigin)) {
       candidateUrls.push(currentOrigin);
     }
   } else {
