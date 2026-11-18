@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aura-audtex-pwa-v10';
+const CACHE_NAME = 'aura-audtex-pwa-v11';
 const assetUrl = (path) => new URL(path, self.registration.scope).toString();
 const STATIC_ASSETS = ['index.html', 'manifest.json', 'favicon.svg', 'icons.svg'].map(assetUrl);
 

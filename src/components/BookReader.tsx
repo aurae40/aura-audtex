@@ -17,7 +17,6 @@ import {
   Mic,
   User,
   Edit3,
-  Globe,
 } from 'lucide-react';
 
 interface BookReaderProps {
@@ -52,7 +51,6 @@ interface BookReaderProps {
   onResume?: () => void;
   onUpdateEntry?: (id: string, updates: Partial<LexiconEntry>) => void;
   language?: string;
-  onOpenWebLinkModal?: () => void;
 }
 
 export const BookReader: React.FC<BookReaderProps> = ({
@@ -86,7 +84,6 @@ export const BookReader: React.FC<BookReaderProps> = ({
   language = 'en',
   speakers,
   onUpdateSpeakerName,
-  onOpenWebLinkModal,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeWordRef = useRef<HTMLSpanElement | null>(null);
@@ -1036,22 +1033,6 @@ export const BookReader: React.FC<BookReaderProps> = ({
                   isShaking={isHeadphonesHovered}
                 />
               </div>
-
-              {/* Direct Web Link / Podcast Importer Action Pill */}
-              {onOpenWebLinkModal && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenWebLinkModal();
-                  }}
-                  className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-stone-900/90 hover:bg-sky-500/15 border border-white/10 hover:border-sky-400/50 text-stone-300 hover:text-sky-300 text-xs font-semibold tracking-wide transition-all duration-200 shadow-md hover:shadow-sky-500/10 active:scale-95 cursor-pointer z-10"
-                  title="Direct Web Link / Podcast Importer: Paste YouTube, Loom, or Podcast RSS URL"
-                >
-                  <Globe className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
-                  <span>Paste Web Link (YouTube, Podcast, Loom)</span>
-                </button>
-              )}
             </div>
           ) : (
             <p className="leading-relaxed">

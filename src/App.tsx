@@ -1754,7 +1754,6 @@ export function App() {
             onOpenFullScreen={handleOpenFullScreen}
             isFullscreen={isFullscreen}
             onToggleFullscreen={handleToggleFullscreen}
-            onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
           />
 
           {/* Real-Time Live Recording Status Ribbon */}
@@ -1814,7 +1813,6 @@ export function App() {
                 }}
                 language={currentLanguage}
                 onEnrichOnline={handleEnrichOnline}
-                onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
               />
             )}
 
@@ -1908,7 +1906,6 @@ export function App() {
             onOpenFullScreen={handleOpenFullScreen}
             isFullscreen={isFullscreen}
             onToggleFullscreen={handleToggleFullscreen}
-            onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
           />
 
           {/* Side-by-Side Open Book Spread */}
@@ -1950,7 +1947,6 @@ export function App() {
                 }}
                 language={currentLanguage}
                 onEnrichOnline={handleEnrichOnline}
-                onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
               />
             </div>
 

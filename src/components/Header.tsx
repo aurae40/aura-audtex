@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Palette, Database, Sun, Moon, Globe } from 'lucide-react';
+import { Palette, Database, Sun, Moon } from 'lucide-react';
 import { SovereignDynamicCapsule } from './SovereignDynamicCapsule';
 import { getActiveCountryHeritage } from '../services/countryService';
 import { isPhysicalMobileDevice } from '../services/hardwareDetectionService';
@@ -20,7 +20,6 @@ interface HeaderProps {
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   onOpenCountryModal?: () => void;
-  onOpenWebLinkModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -35,7 +34,6 @@ export const Header: React.FC<HeaderProps> = ({
   isFullscreen: _propIsFullscreen,
   onToggleFullscreen: _propToggleFullscreen,
   onOpenCountryModal,
-  onOpenWebLinkModal,
 }) => {
   const [country, setCountry] = useState<CountryHeritage>(getActiveCountryHeritage);
   const [isMobile, setIsMobile] = useState<boolean>(() => {
@@ -128,18 +126,8 @@ export const Header: React.FC<HeaderProps> = ({
           />
         </div>
 
-        {/* Action icons: Web Link / Podcast, Library, Appearance, and Day/Dark Theme */}
+        {/* Action icons: Library, Appearance, and Day/Dark Theme */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {onOpenWebLinkModal && (
-            <button
-              onClick={onOpenWebLinkModal}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-black/5 dark:bg-white/5 hover:bg-sky-500/15 border border-black/10 dark:border-white/10 hover:border-sky-400/40 transition flex items-center justify-center active:scale-95 group/btn"
-              title="Direct Web Link / Podcast Importer (YouTube, Loom, Podcast RSS)"
-              aria-label="Direct Web Link / Podcast Importer"
-            >
-              <Globe className="w-4 h-4 text-sky-400 group-hover/btn:scale-110 transition-transform" />
-            </button>
-          )}
           <button
             onClick={onOpenVault}
             className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 border border-black/10 dark:border-white/10 transition flex items-center justify-center active:scale-95 group/btn"

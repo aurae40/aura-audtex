@@ -179,18 +179,6 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
               )}
             </button>
           )}
-
-          {/* Direct Web Link / Podcast Importer Button */}
-          {onOpenWebLinkModal && (
-            <button
-              onClick={onOpenWebLinkModal}
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-stone-500 hover:text-sky-400 dark:hover:text-sky-300 hover:bg-black/5 dark:hover:bg-white/5 transition active:scale-95"
-              title="Direct Web Link / Podcast Importer: Paste YouTube, Loom, or Podcast RSS URL"
-              aria-label="Direct Web Link / Podcast Importer"
-            >
-              <Globe className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-            </button>
-          )}
         </div>
 
         {/* Three large primary transport controls (touch-safe >= 48px) */}
