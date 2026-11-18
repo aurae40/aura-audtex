@@ -644,6 +644,13 @@ async def transcribe_audio(
                 pass
 
 
+# Serve production frontend if built so mobile devices on LAN can access http://<LAN_IP>:8000/
+dist_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dist")
+if os.path.isdir(dist_dir):
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/", StaticFiles(directory=dist_dir, html=True), name="static")
+
+
 if __name__ == "__main__":
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')

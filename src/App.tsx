@@ -1162,17 +1162,24 @@ export function App() {
     const url = URL.createObjectURL(file);
     setAudioSource(url);
 
-    // 2. Measure audio duration
+    // 2. Measure audio duration with safe timeout (prevents iOS Safari metadata hanging)
     let detectedDuration = 38;
     try {
-      const tempAudio = new Audio(url);
+      const tempAudio = new Audio();
       await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => resolve(), 1200);
         tempAudio.onloadedmetadata = () => {
-          detectedDuration = tempAudio.duration || 38;
+          clearTimeout(timeout);
+          detectedDuration = Number.isFinite(tempAudio.duration) && tempAudio.duration > 0 ? tempAudio.duration : 38;
           setDuration(detectedDuration);
           resolve();
         };
-        tempAudio.onerror = () => resolve();
+        tempAudio.onerror = () => {
+          clearTimeout(timeout);
+          resolve();
+        };
+        tempAudio.src = url;
+        tempAudio.load();
       });
     } catch {
       // fallback to 38

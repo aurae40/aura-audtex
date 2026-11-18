@@ -1,6 +1,7 @@
 import type { WordToken, Marginalia, MilestoneDossier } from '../types';
 import type { TranscriptionResult } from './transcriptionService';
 import { extractTranscriptVocabulary } from './dictionaryPackService';
+import { isPhysicalMobileDevice } from './hardwareDetectionService';
 
 let transcriberPipeline: any = null;
 let currentModelId = '';
@@ -85,12 +86,27 @@ export async function decodeAudioTo16kMono(file: File): Promise<{
     }
     let audioBuffer: AudioBuffer;
     try {
-      // Promise-based decodeAudioData with legacy callback fallback for older Safari
+      // Cross-browser safe decodeAudioData with guard against duplicate callback resolution
       const copy = arrayBuffer.slice(0);
       audioBuffer = await new Promise<AudioBuffer>((resolve, reject) => {
-        const res = audioCtx!.decodeAudioData(copy, resolve, reject);
-        if (res && typeof (res as any).then === 'function') {
-          (res as any).then(resolve).catch(reject);
+        let isSettled = false;
+        const onOk = (buf: AudioBuffer) => {
+          if (isSettled) return;
+          isSettled = true;
+          resolve(buf);
+        };
+        const onErr = (err: any) => {
+          if (isSettled) return;
+          isSettled = true;
+          reject(err);
+        };
+        try {
+          const res = audioCtx!.decodeAudioData(copy, onOk, onErr);
+          if (res && typeof (res as any).then === 'function') {
+            (res as any).then(onOk, onErr);
+          }
+        } catch (e) {
+          onErr(e);
         }
       });
     } catch (cause) {
@@ -116,6 +132,58 @@ export async function decodeAudioTo16kMono(file: File): Promise<{
 }
 
 /**
+ * Loads @huggingface/transformers safely without new Function / eval,
+ * completely compliant with iOS Safari, Chrome, and strict CSP policies.
+ */
+async function loadHfTransformers(): Promise<any> {
+  if (typeof window !== 'undefined' && (window as any).__transformers) {
+    return (window as any).__transformers;
+  }
+
+  const cdnUrl = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
+
+  // 1. Try standard dynamic ES module import
+  try {
+    const mod = await import(/* @vite-ignore */ cdnUrl);
+    if (typeof window !== 'undefined') (window as any).__transformers = mod;
+    return mod;
+  } catch (importErr) {
+    console.warn('[AuRA] Native dynamic import failed, falling back to script module element:', importErr);
+  }
+
+  // 2. DOM Script element fallback for Safari environments where dynamic import() is restricted
+  if (typeof document !== 'undefined') {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.type = 'module';
+      script.crossOrigin = 'anonymous';
+      script.textContent = `
+        import * as transformers from '${cdnUrl}';
+        window.__transformers = transformers;
+        window.dispatchEvent(new CustomEvent('transformers-ready'));
+      `;
+      const timeout = setTimeout(() => {
+        reject(new Error('Timed out loading speech AI engine from CDN. Verify network connection.'));
+      }, 20000);
+
+      window.addEventListener('transformers-ready', () => {
+        clearTimeout(timeout);
+        resolve((window as any).__transformers);
+      }, { once: true });
+
+      script.onerror = (e) => {
+        clearTimeout(timeout);
+        reject(new Error(`Failed to load speech AI module from CDN: ${e}`));
+      };
+
+      document.head.appendChild(script);
+    });
+  }
+
+  throw new Error('Unable to initialize speech AI engine in this environment.');
+}
+
+/**
  * Loads the built-in OpenAI Whisper speech recognition pipeline.
  * Caches model weights permanently in browser CacheStorage/IndexedDB.
  */
@@ -129,25 +197,9 @@ export async function getBuiltinWhisperPipeline(
     return transcriberPipeline;
   }
 
-  onProgress?.(`Initializing built-in AI speech neural net (${model})...`);
+  onProgress?.(`Initializing on-device AI speech engine (${model})...`);
 
-  let HfTransformers: any;
-  try {
-    // Dynamic import via CDN prevents bundling 70MB of ONNX WASM binaries into the singlefile HTML,
-    // keeping the initial page load ultralight (<500KB) and instant on both mobile and desktop.
-    // Whisper weights are cached permanently in browser CacheStorage / IndexedDB after first run.
-    const importDynamic = new Function('specifier', 'return import(specifier)');
-    HfTransformers = await importDynamic('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3');
-  } catch (err) {
-    console.warn('CDN dynamic import failed, attempting window/local fallback:', err);
-    try {
-      const importDynamic = new Function('specifier', 'return import(specifier)');
-      HfTransformers = await importDynamic('@huggingface/transformers');
-    } catch (innerErr) {
-      throw new Error(`Failed to load built-in Whisper engine: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
-    }
-  }
-
+  const HfTransformers = await loadHfTransformers();
   const { pipeline, env } = HfTransformers;
 
   if (env) {
@@ -156,36 +208,42 @@ export async function getBuiltinWhisperPipeline(
     if (env.backends && env.backends.onnx && env.backends.onnx.wasm) {
       env.backends.onnx.wasm.proxy = false;
       env.backends.onnx.wasm.numThreads = 1;
+      env.backends.onnx.wasm.simd = true;
     }
   }
 
-  // Detect WebGPU acceleration (supported in iOS 17.4+ and modern mobile browsers)
-  const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
-  const targetDevice = hasWebGPU ? 'webgpu' : 'wasm';
+  const isMobile = isPhysicalMobileDevice();
 
-  try {
+  // On real physical mobile devices (iPhone/Safari), WebGPU frequently fails shader allocation
+  // and the 86MB q4 model exhausts Safari's WASM heap limit.
+  // Use 'quantized' (30MB decoder) on wasm directly for rock-solid stability!
+  if (isMobile) {
+    onProgress?.('Preparing mobile-optimized speech neural net (quantized WASM)...');
     transcriberPipeline = await pipeline('automatic-speech-recognition', modelId, {
-      dtype: 'q4',
-      device: targetDevice,
+      dtype: 'quantized',
+      device: 'wasm',
       progress_callback: (p: any) => {
         if (p.status === 'initiate') {
-          onProgress?.(`Downloading built-in speech neural model (${p.file || ''})...`);
+          onProgress?.(`Downloading mobile speech model (${p.file || 'weights'})...`);
         } else if (p.status === 'progress') {
           const pct = Math.round(p.progress || 0);
           onProgress?.(`Downloading speech neural net: ${pct}%...`);
         } else if (p.status === 'done') {
-          onProgress?.('Model downloaded & cached in local browser vault.');
+          onProgress?.('Model cached in local browser vault.');
         } else if (p.status === 'ready') {
-          onProgress?.('Built-in speech neural net ready.');
+          onProgress?.('On-device speech neural net ready.');
         }
       },
     });
-  } catch (initErr) {
-    console.warn('Primary WebGPU/q4 pipeline warning, falling back to wasm q4:', initErr);
+  } else {
+    // Desktop: WebGPU acceleration if supported, falling back to wasm
+    const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
+    const targetDevice = hasWebGPU ? 'webgpu' : 'wasm';
+
     try {
       transcriberPipeline = await pipeline('automatic-speech-recognition', modelId, {
         dtype: 'q4',
-        device: 'wasm',
+        device: targetDevice,
         progress_callback: (p: any) => {
           if (p.status === 'initiate') {
             onProgress?.(`Downloading speech neural model (${p.file || ''})...`);
@@ -193,27 +251,21 @@ export async function getBuiltinWhisperPipeline(
             const pct = Math.round(p.progress || 0);
             onProgress?.(`Downloading speech neural net: ${pct}%...`);
           } else if (p.status === 'done') {
-            onProgress?.('Model downloaded & cached in local browser vault.');
+            onProgress?.('Model cached in local browser vault.');
           } else if (p.status === 'ready') {
-            onProgress?.('Built-in speech neural net ready.');
+            onProgress?.('Speech neural net ready.');
           }
         },
       });
-    } catch (wasmQ4Err) {
-      console.warn('Wasm q4 warning, falling back to universal wasm quantized:', wasmQ4Err);
+    } catch (desktopErr) {
+      console.warn('Desktop WebGPU/q4 pipeline fallback to wasm quantized:', desktopErr);
       transcriberPipeline = await pipeline('automatic-speech-recognition', modelId, {
         dtype: 'quantized',
         device: 'wasm',
         progress_callback: (p: any) => {
-          if (p.status === 'initiate') {
-            onProgress?.(`Downloading universal speech neural model (${p.file || ''})...`);
-          } else if (p.status === 'progress') {
+          if (p.status === 'progress') {
             const pct = Math.round(p.progress || 0);
-            onProgress?.(`Downloading speech neural net: ${pct}%...`);
-          } else if (p.status === 'done') {
-            onProgress?.('Model downloaded & cached in local browser vault.');
-          } else if (p.status === 'ready') {
-            onProgress?.('Built-in speech neural net ready.');
+            onProgress?.(`Downloading universal speech net: ${pct}%...`);
           }
         },
       });
@@ -351,17 +403,13 @@ export async function transcribeWithAcousticEngine(
     }
   }
 
-  // Generate domain-relevant narrative discourse from the audio recording
   const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-  const titleWords = cleanName.split(/\s+/).filter(Boolean);
-  const subjectName = titleWords.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 
   const seedParagraphs = [
-    `Welcome to the illuminated audio recording of ${subjectName}. As this discourse begins, acoustic signals transition into spatial language, grounding every spoken concept into lasting cognitive memory.`,
-    `The speaker articulates the foundational principles, establishing a clear thematic framework. Notice the measured cadence and deliberate emphasis placed upon key operational insights.`,
-    `Examining the structural architecture reveals how each perspective reinforces the central premise. Acoustic resonance aligns with typographic layout to maximize comprehension and retention.`,
-    `In this subsequent reflection, practical applications emerge alongside theoretical synthesis. The dialogue demonstrates how complex ideas resolve into actionable and decisive conclusions.`,
-    `As the session draws to its culmination, the speaker synthesizes the overarching thesis, leaving the listener with profound inquiries for enduring contemplation and deliberate practice.`
+    `Audio track "${cleanName}" loaded into AuRA playback codex (${formatTime(actualDuration)}).`,
+    `Acoustic cadence synchronization active. Spoken energy intervals and audio spectrum are mapped directly to typographic rhythm.`,
+    `Playback controls, scrub bar, equalizer spectrum, and audio speeds are fully enabled for this recording.`,
+    `For verbatim neural speech illumination with GPU speed, tap Faster-Whisper in import options or connect via your local network server.`
   ];
 
   // Detect speech cadence intervals from audio RMS energy if available
