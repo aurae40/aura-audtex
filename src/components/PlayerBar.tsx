@@ -152,32 +152,46 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
       {/* Primary transport remains touch-safe; less-frequent controls live in one sheet. */}
       <div className="relative flex items-center justify-between w-full px-4 py-1">
-        {/* Live Meeting / Lecture Mode Microphone Toggle */}
-        {onToggleLiveMeeting && (
-          <button
-            onClick={onToggleLiveMeeting}
-            className={`absolute left-1 w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95 z-10 ${
-              isLiveRecording
-                ? 'bg-rose-500 text-white shadow-[0_0_18px_rgba(244,63,94,0.7)] animate-pulse'
-                : 'text-stone-500 hover:text-stone-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'
-            }`}
-            title={
-              isLiveRecording
-                ? `Recording Live Meeting [${Math.floor(liveRecordingDuration / 60)}:${(Math.floor(liveRecordingDuration % 60)).toString().padStart(2, '0')}] — Click to Stop & Save`
-                : 'Live Meeting & Lecture Mode (Zero-Latency WebGPU Mic)'
-            }
-            aria-label={isLiveRecording ? 'Stop Live Recording' : 'Start Live Meeting Mode'}
-          >
-            {isLiveRecording ? (
-              <div className="flex items-center justify-center relative">
-                <Square className="w-3.5 h-3.5 fill-current" />
-                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-              </div>
-            ) : (
-              <Radio className="w-4.5 h-4.5" />
-            )}
-          </button>
-        )}
+        {/* Left Actions: Live Meeting Toggle & Direct Web Link / Podcast Importer */}
+        <div className="absolute left-1 flex items-center gap-0.5 sm:gap-1 z-10">
+          {onToggleLiveMeeting && (
+            <button
+              onClick={onToggleLiveMeeting}
+              className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all active:scale-95 ${
+                isLiveRecording
+                  ? 'bg-rose-500 text-white shadow-[0_0_18px_rgba(244,63,94,0.7)] animate-pulse'
+                  : 'text-stone-500 hover:text-stone-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'
+              }`}
+              title={
+                isLiveRecording
+                  ? `Recording Live Meeting [${Math.floor(liveRecordingDuration / 60)}:${(Math.floor(liveRecordingDuration % 60)).toString().padStart(2, '0')}] — Click to Stop & Save`
+                  : 'Live Meeting & Lecture Mode (Zero-Latency WebGPU Mic)'
+              }
+              aria-label={isLiveRecording ? 'Stop Live Recording' : 'Start Live Meeting Mode'}
+            >
+              {isLiveRecording ? (
+                <div className="flex items-center justify-center relative">
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                </div>
+              ) : (
+                <Radio className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+              )}
+            </button>
+          )}
+
+          {/* Direct Web Link / Podcast Importer Button */}
+          {onOpenWebLinkModal && (
+            <button
+              onClick={onOpenWebLinkModal}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-stone-500 hover:text-sky-400 dark:hover:text-sky-300 hover:bg-black/5 dark:hover:bg-white/5 transition active:scale-95"
+              title="Direct Web Link / Podcast Importer: Paste YouTube, Loom, or Podcast RSS URL"
+              aria-label="Direct Web Link / Podcast Importer"
+            >
+              <Globe className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+            </button>
+          )}
+        </div>
 
         {/* Three large primary transport controls (touch-safe >= 48px) */}
         <div className="flex items-center justify-center gap-6 sm:gap-8 mx-auto">

@@ -1,4 +1,4 @@
-import type { WordToken } from '../types';
+import type { WordToken, SpeakerInfo } from '../types';
 
 export const DEFAULT_SPEAKER_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   'Speaker 1': {
@@ -56,8 +56,8 @@ export function estimatePitch(
   }
   rms = Math.sqrt(rms / SIZE);
 
-  // If too quiet, ignore as silence/noise
-  if (rms < 0.015) {
+  // Sensitive vocal gate: normal speech into built-in microphones ranges 0.003 to 0.025 RMS
+  if (rms < 0.0035) {
     return { pitchHz: 0, confidence: 0 };
   }
 
@@ -111,17 +111,15 @@ export class LiveDiarizer {
     const dist1 = Math.abs(pitchHz - this.speaker1Centroid);
     const dist2 = Math.abs(pitchHz - this.speaker2Centroid);
 
-    // If there was a conversational gap > 0.9s, turn-taking is much more likely
-    const isPauseGap = timeSinceLastSpeech > 0.9;
+    // If there was a conversational gap > 0.8s, turn-taking is much more likely
+    const isPauseGap = timeSinceLastSpeech > 0.8;
 
-    if (dist2 < dist1 && (isPauseGap || dist1 - dist2 > 40)) {
+    if (dist2 < dist1 && (isPauseGap || dist1 - dist2 > 30)) {
       this.currentSpeaker = 'Speaker 2';
-      // Update centroid
       this.speaker2Centroid = (this.speaker2Centroid * this.samplesSeen2 + pitchHz) / (this.samplesSeen2 + 1);
       this.samplesSeen2++;
-    } else if (dist1 <= dist2 && (isPauseGap || dist2 - dist1 > 40)) {
+    } else if (dist1 <= dist2 && (isPauseGap || dist2 - dist1 > 30)) {
       this.currentSpeaker = 'Speaker 1';
-      // Update centroid
       this.speaker1Centroid = (this.speaker1Centroid * this.samplesSeen1 + pitchHz) / (this.samplesSeen1 + 1);
       this.samplesSeen1++;
     }
@@ -144,30 +142,62 @@ export class LiveDiarizer {
 }
 
 /**
- * Applies automated speaker diarization across word tokens based on pause gaps
- * and linguistic turn boundaries.
+ * Applies automated speaker diarization across word tokens based on pause gaps,
+ * punctuation boundaries, and conversational cadences.
  */
 export function diarizeTokens(tokens: WordToken[]): WordToken[] {
   if (!tokens || tokens.length === 0) return tokens;
+
+  // If tokens already have varied speaker tags from live pitch tracking, keep them
+  const existingSpeakers = new Set(tokens.map(t => t.speaker).filter(Boolean));
+  if (existingSpeakers.size > 1) {
+    return tokens;
+  }
 
   let currentSpeaker = 'Speaker 1';
   let lastEnd = tokens[0].start;
 
   return tokens.map((token, index) => {
-    // If the gap between words is > 1.4 seconds, or if a sentence ends and there is a pause > 0.9s,
-    // infer speaker turn-taking alternation.
     const gap = token.start - lastEnd;
     const prevWord = index > 0 ? tokens[index - 1].word : '';
     const isPunctuationEnd = /[.!?]$/.test(prevWord);
 
-    if (gap > 1.8 || (isPunctuationEnd && gap > 0.95)) {
+    // Alternate speakers when conversational pauses occur (>1.3s, or >0.8s after sentence termination)
+    if (gap > 1.3 || (isPunctuationEnd && gap > 0.8)) {
       currentSpeaker = currentSpeaker === 'Speaker 1' ? 'Speaker 2' : 'Speaker 1';
     }
 
     lastEnd = token.end;
     return {
       ...token,
-      speaker: token.speaker || currentSpeaker,
+      speaker: currentSpeaker,
     };
   });
+}
+
+/**
+ * Extracts a complete speaker metadata dictionary from diarized word tokens.
+ */
+export function extractSpeakerMap(tokens: WordToken[]): Record<string, SpeakerInfo> {
+  const speakers: Record<string, SpeakerInfo> = {};
+  const colors = ['#f59e0b', '#06b6d4', '#a855f7', '#10b981', '#f43f5e'];
+  let idx = 0;
+
+  for (const tok of tokens) {
+    const spk = tok.speaker || 'Speaker 1';
+    if (!speakers[spk]) {
+      speakers[spk] = {
+        id: spk,
+        label: spk,
+        color: colors[idx % colors.length],
+      };
+      idx++;
+    }
+  }
+
+  if (Object.keys(speakers).length === 0) {
+    speakers['Speaker 1'] = { id: 'Speaker 1', label: 'Speaker 1', color: colors[0] };
+  }
+
+  return speakers;
 }

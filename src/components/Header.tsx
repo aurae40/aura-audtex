@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Palette, Database, Sun, Moon } from 'lucide-react';
-import { DeviceStatusBar } from './DeviceStatusBar';
+import { Palette, Database, Sun, Moon, Globe } from 'lucide-react';
 import { SovereignDynamicCapsule } from './SovereignDynamicCapsule';
 import { getActiveCountryHeritage } from '../services/countryService';
 import { isPhysicalMobileDevice } from '../services/hardwareDetectionService';
-import { useDeviceFullscreen } from '../hooks/useDeviceFullscreen';
 import type { CountryHeritage, ViewMode } from '../types';
 
 interface HeaderProps {
@@ -22,24 +20,23 @@ interface HeaderProps {
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   onOpenCountryModal?: () => void;
+  onOpenWebLinkModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   isPlaying,
-  currentTimeFormatted,
+  currentTimeFormatted: _currentTimeFormatted,
   onOpenSkins,
   onOpenVault,
   onAudioUpload,
   isDarkMode = false,
   onToggleDarkMode,
   onOpenFullScreen,
-  isFullscreen: propIsFullscreen,
-  onToggleFullscreen: propToggleFullscreen,
+  isFullscreen: _propIsFullscreen,
+  onToggleFullscreen: _propToggleFullscreen,
   onOpenCountryModal,
+  onOpenWebLinkModal,
 }) => {
-  const fallbackFs = useDeviceFullscreen();
-  const isFullscreen = propIsFullscreen !== undefined ? propIsFullscreen : fallbackFs.isFullscreen;
-
   const [country, setCountry] = useState<CountryHeritage>(getActiveCountryHeritage);
   const [isMobile, setIsMobile] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -67,14 +64,6 @@ export const Header: React.FC<HeaderProps> = ({
     };
   }, []);
 
-  const toggleHardwareFullscreen = () => {
-    if (propToggleFullscreen) {
-      propToggleFullscreen();
-    } else {
-      fallbackFs.toggleFullscreen();
-    }
-  };
-
   return (
     <header
       className="theme-header w-full flex flex-col z-40 select-none backdrop-blur-xl shadow-sm transition-all duration-200"
@@ -84,22 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
           : undefined,
       }}
     >
-      {/* 1. Desktop Showcase Only: Simulated Status Bar when previewed in desktop mockup frame.
-             On real mobile devices, this is completely suppressed via both JS and CSS to avoid duplicate clock/battery! */}
-      {!isMobile && (
-        <div className="hidden md:block w-full">
-          <DeviceStatusBar
-            isPlaying={isPlaying}
-            currentTimeFormatted={currentTimeFormatted}
-            onOpenVault={onOpenVault}
-            onOpenCountryModal={onOpenCountryModal}
-            isFullscreen={isFullscreen}
-            onToggleFullscreen={toggleHardwareFullscreen}
-          />
-        </div>
-      )}
-
-      {/* Global action area: AuRA brand, Sovereign Capsule (on mobile), library, appearance, and theme toggle */}
+      {/* Global action area: AuRA brand, Sovereign Capsule, Web Link Importer, Vault, Appearance, and Day/Dark Theme */}
       <div className="px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2">
         {/* Brand Stamp with Interactive 'u' Popout & Fullscreen Trigger */}
         <div
@@ -145,19 +119,27 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
         </div>
 
-        {/* Center: Device-Aware Sovereign Dynamic Capsule on mobile (zero duplicate status bars) */}
-        {isMobile && (
-          <div className="flex-1 flex justify-center items-center min-w-0 px-1">
-            <SovereignDynamicCapsule
-              country={country}
-              isPlaying={isPlaying}
-              onOpenCountryModal={onOpenCountryModal}
-            />
-          </div>
-        )}
+        {/* Center: Device-Aware Sovereign Dynamic Capsule (integrated directly into header, zero duplicate status bars) */}
+        <div className="flex-1 flex justify-center items-center min-w-0 px-1">
+          <SovereignDynamicCapsule
+            country={country}
+            isPlaying={isPlaying}
+            onOpenCountryModal={onOpenCountryModal}
+          />
+        </div>
 
-        {/* Action icons: Library, Appearance, and Day/Dark Theme */}
+        {/* Action icons: Web Link / Podcast, Library, Appearance, and Day/Dark Theme */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {onOpenWebLinkModal && (
+            <button
+              onClick={onOpenWebLinkModal}
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-black/5 dark:bg-white/5 hover:bg-sky-500/15 border border-black/10 dark:border-white/10 hover:border-sky-400/40 transition flex items-center justify-center active:scale-95 group/btn"
+              title="Direct Web Link / Podcast Importer (YouTube, Loom, Podcast RSS)"
+              aria-label="Direct Web Link / Podcast Importer"
+            >
+              <Globe className="w-4 h-4 text-sky-400 group-hover/btn:scale-110 transition-transform" />
+            </button>
+          )}
           <button
             onClick={onOpenVault}
             className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 border border-black/10 dark:border-white/10 transition flex items-center justify-center active:scale-95 group/btn"

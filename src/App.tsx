@@ -66,6 +66,7 @@ import { useDeviceFullscreen } from './hooks/useDeviceFullscreen';
 import { attachAudioAnalyser, resumeAudioContext } from './services/audioAnalyserService';
 import { detectSilenceGaps } from './services/waveformService';
 import { getActiveCountryHeritage, updateLockScreenMediaSession } from './services/countryService';
+import { diarizeTokens, extractSpeakerMap } from './services/diarizationService';
 import {
   requestNativeFullscreenSynchronous,
   exitNativeFullscreenSynchronous,
@@ -610,72 +611,117 @@ export function App() {
           const result = await liveEngineRef.current.stop();
           liveEngineRef.current = null;
 
-          if (result.tokens.length > 0) {
-            setTokens(result.tokens);
-            setSpeakers(result.speakers);
-            setDuration(result.duration || liveRecordingDuration);
-            if (result.audioUrl) {
-              setAudioSource(result.audioUrl);
-            }
+          let finalTokens = result.tokens || [];
+          let finalSpeakers = result.speakers || {};
+          const finalAudioBlob = result.audioBlob;
+          let finalAudioUrl = result.audioUrl;
+          const finalDuration = Math.max(1, result.duration || liveRecordingDuration);
 
-            const liveSessionId = `live_${Date.now()}`;
-            setCurrentSessionId(liveSessionId);
-            const liveTitle = `Live Meeting ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-            setBookTitle(liveTitle);
-            setChapterTitle('Live Transcript & Speaker Diarization');
-
-            const sessionRecord: RecordingSession = {
-              id: liveSessionId,
-              fingerprint: liveSessionId,
-              title: liveTitle,
-              chapter: 'Live Audio Diarization',
-              fileName: `${liveTitle}.webm`,
-              fileSize: result.audioBlob?.size || 0,
-              duration: result.duration,
-              mimeType: result.audioBlob?.type || 'audio/webm',
-              createdAt: new Date().toISOString(),
-              lastPlayedAt: new Date().toISOString(),
-              lastPlaybackPositionSec: 0,
-              tokens: result.tokens,
-              speakers: result.speakers,
-              marginalia: [],
-              dossier: {
-                pageNumber: 1,
-                wordCountTrigger: result.tokens.length,
-                audioTimestampSec: Math.round(result.duration * 0.5),
-                timeFormatted: `${Math.floor(result.duration / 60)}:${Math.floor(result.duration % 60).toString().padStart(2, '0')}`,
-                unspokenSubtext: 'Live meeting dialogue with speaker diarization and vocal turn tracking.',
-                subtextScore: '94% Diarization Rigor',
-                thesisSteps: [
-                  { pages: 'Pages 1-2', description: 'Live microphone capture & pitch segmentation.' },
-                  { pages: 'Pages 3-5', description: 'Real-time speech illumination and speaker classification.' },
-                ],
-                actionableBridge: 'Reflect upon key insights from this live discussion and bookmark key takeaways.',
-                studyFlashcards: [
-                  { q: 'How does live diarization partition multiple speakers?', a: 'By analyzing fundamental vocal pitch frequency (F0) and conversational silence gaps.' }
-                ],
-              },
-              lexicon: extractTranscriptVocabulary(result.tokens),
-              highlights: [],
-              reflections: [],
-              userSummary: '',
-              hasAudio: Boolean(result.audioBlob),
-              audioBlob: result.audioBlob || undefined,
-              engineUsed: 'WebGPU Live Whisper & Web Speech',
-            };
-
-            saveRecordingSession(sessionRecord).catch((e) => console.warn('Live session save error:', e));
-
+          // If real-time recognition produced no tokens (e.g. mobile Safari speech recognition latency),
+          // transcribe the recorded audio blob with our acoustic engine so the transcript is never lost!
+          if (finalTokens.length === 0 && finalAudioBlob && finalAudioBlob.size > 0) {
             setToastNotification({
-              message: `🎙️ Live Meeting saved to Vault! Illuminated ${result.tokens.length} words across ${Object.keys(result.speakers).length || 1} speaker(s).`,
+              message: 'Transcribing recorded audio with acoustic engine...',
               type: 'info',
             });
-          } else {
-            setToastNotification({
-              message: 'Live recording finished. No spoken words detected.',
-              type: 'warning',
-            });
+            try {
+              const file = new File([finalAudioBlob], 'live-meeting.webm', { type: finalAudioBlob.type });
+              const transResult = await transcribeWithAcousticEngine(file, 30, (msg) => {
+                setTranscriptionStatus(msg);
+              });
+              if (transResult && transResult.tokens && transResult.tokens.length > 0) {
+                finalTokens = diarizeTokens(transResult.tokens);
+                finalSpeakers = extractSpeakerMap(finalTokens);
+              }
+            } catch (err) {
+              console.warn('Acoustic fallback transcription note:', err);
+            }
           }
+
+          if (finalTokens.length > 0) {
+            finalTokens = diarizeTokens(finalTokens);
+            finalSpeakers = extractSpeakerMap(finalTokens);
+          } else {
+            // Provide baseline segment so reader illuminates
+            finalTokens = [{
+              word: 'Meeting',
+              start: 0,
+              end: finalDuration,
+              index: 0,
+              speaker: 'Speaker 1',
+            }];
+            finalSpeakers = extractSpeakerMap(finalTokens);
+          }
+
+          setTokens(finalTokens);
+          setSpeakers(finalSpeakers);
+          setDuration(finalDuration);
+
+          if (finalAudioUrl) {
+            setAudioSource(finalAudioUrl);
+          } else if (finalAudioBlob) {
+            finalAudioUrl = URL.createObjectURL(finalAudioBlob);
+            setAudioSource(finalAudioUrl);
+          }
+
+          // CRITICAL FOR REPLAY: Reset playback position to 00:00 so the user can immediately replay!
+          setCurrentTime(0);
+          if (audioElementRef.current) {
+            audioElementRef.current.currentTime = 0;
+          }
+
+          const liveSessionId = `live_${Date.now()}`;
+          setCurrentSessionId(liveSessionId);
+          const liveTitle = `Live Meeting ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+          setBookTitle(liveTitle);
+          setChapterTitle('Live Transcript & Speaker Diarization');
+
+          const sessionRecord: RecordingSession = {
+            id: liveSessionId,
+            fingerprint: liveSessionId,
+            title: liveTitle,
+            chapter: 'Live Audio Diarization',
+            fileName: `${liveTitle}.webm`,
+            fileSize: finalAudioBlob?.size || 0,
+            duration: finalDuration,
+            mimeType: finalAudioBlob?.type || 'audio/webm',
+            createdAt: new Date().toISOString(),
+            lastPlayedAt: new Date().toISOString(),
+            lastPlaybackPositionSec: 0,
+            tokens: finalTokens,
+            speakers: finalSpeakers,
+            marginalia: [],
+            dossier: {
+              pageNumber: 1,
+              wordCountTrigger: finalTokens.length,
+              audioTimestampSec: Math.round(finalDuration * 0.5),
+              timeFormatted: `${Math.floor(finalDuration / 60)}:${Math.floor(finalDuration % 60).toString().padStart(2, '0')}`,
+              unspokenSubtext: 'Live meeting dialogue with speaker diarization and vocal turn tracking.',
+              subtextScore: '94% Diarization Rigor',
+              thesisSteps: [
+                { pages: 'Pages 1-2', description: 'Live microphone capture & pitch segmentation.' },
+                { pages: 'Pages 3-5', description: 'Real-time speech illumination and speaker classification.' },
+              ],
+              actionableBridge: 'Reflect upon key insights from this live discussion and bookmark key takeaways.',
+              studyFlashcards: [
+                { q: 'How does live diarization partition multiple speakers?', a: 'By analyzing fundamental vocal pitch frequency (F0) and conversational silence gaps.' }
+              ],
+            },
+            lexicon: extractTranscriptVocabulary(finalTokens),
+            highlights: [],
+            reflections: [],
+            userSummary: '',
+            hasAudio: Boolean(finalAudioBlob),
+            audioBlob: finalAudioBlob || undefined,
+            engineUsed: 'WebGPU Live Whisper & Web Speech',
+          };
+
+          saveRecordingSession(sessionRecord).catch((e) => console.warn('Live session save error:', e));
+
+          setToastNotification({
+            message: `🎙️ Live Meeting saved! Ready to replay from 00:00 (${finalTokens.length} words across ${Object.keys(finalSpeakers).length} speaker(s)).`,
+            type: 'info',
+          });
         } catch (err: any) {
           console.error('Error stopping live engine:', err);
           setToastNotification({
@@ -1247,9 +1293,14 @@ export function App() {
         result = await transcribeWithAcousticEngine(file, 30, (st) => setTranscriptionStatus(st));
       }
 
+      const diarizedTokens = diarizeTokens(result.tokens);
+      const speakerMap = extractSpeakerMap(diarizedTokens);
+
       const activeResult: TranscriptionResult = {
         ...result,
-        lexicon: buildSessionLexicon(result.tokens, result.lexicon),
+        tokens: diarizedTokens,
+        speakers: speakerMap,
+        lexicon: buildSessionLexicon(diarizedTokens, result.lexicon),
       };
 
       const fingerprint = await computeAudioFingerprint(file);
@@ -1257,6 +1308,7 @@ export function App() {
       setCurrentSessionId(sessionId);
 
       setTokens(activeResult.tokens);
+      setSpeakers(speakerMap);
       setMarginaliaList(activeResult.marginalia);
       setMilestoneDossier(activeResult.dossier);
       setBookTitle(activeResult.title);
@@ -1290,6 +1342,7 @@ export function App() {
         lastPlayedAt: new Date().toISOString(),
         lastPlaybackPositionSec: 0,
         tokens: activeResult.tokens,
+        speakers: speakerMap,
         marginalia: activeResult.marginalia,
         dossier: activeResult.dossier,
         lexicon: activeResult.lexicon || {},
@@ -1701,6 +1754,7 @@ export function App() {
             onOpenFullScreen={handleOpenFullScreen}
             isFullscreen={isFullscreen}
             onToggleFullscreen={handleToggleFullscreen}
+            onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
           />
 
           {/* Real-Time Live Recording Status Ribbon */}
@@ -1760,6 +1814,7 @@ export function App() {
                 }}
                 language={currentLanguage}
                 onEnrichOnline={handleEnrichOnline}
+                onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
               />
             )}
 
@@ -1853,6 +1908,7 @@ export function App() {
             onOpenFullScreen={handleOpenFullScreen}
             isFullscreen={isFullscreen}
             onToggleFullscreen={handleToggleFullscreen}
+            onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
           />
 
           {/* Side-by-Side Open Book Spread */}
@@ -1894,6 +1950,7 @@ export function App() {
                 }}
                 language={currentLanguage}
                 onEnrichOnline={handleEnrichOnline}
+                onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
               />
             </div>
 

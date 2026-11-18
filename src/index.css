@@ -46,7 +46,7 @@
 
 /* App-wide appearance system. The reader, player, panels and modals share the
    same tokens so Day and Nocturnal modes are complete product themes. */
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse), (hover: none) {
   .device-status-bar,
   [data-device-platform] {
     display: none !important;

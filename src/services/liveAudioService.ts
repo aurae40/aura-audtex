@@ -1,5 +1,5 @@
 import type { WordToken, SpeakerInfo } from '../types';
-import { estimatePitch, LiveDiarizer } from './diarizationService';
+import { estimatePitch, LiveDiarizer, diarizeTokens, extractSpeakerMap } from './diarizationService';
 
 export interface LiveSessionState {
   isRecording: boolean;
@@ -71,6 +71,7 @@ export class LiveMeetingEngine {
   private committedTokens: WordToken[] = [];
   private tokenIndexCounter = 0;
   private lastTokenTime = 0;
+  private latestInterimTranscript = '';
 
   private onTokenCallback: LiveTokenCallback | null = null;
   private onStateCallback: LiveStateCallback | null = null;
@@ -201,6 +202,7 @@ export class LiveMeetingEngine {
           const res = event.results[i];
           if (res.isFinal) {
             const transcript = res[0].transcript.trim();
+            this.latestInterimTranscript = '';
             if (!transcript) continue;
 
             const words = transcript.split(/\s+/);
@@ -224,6 +226,11 @@ export class LiveMeetingEngine {
 
             this.lastTokenTime = nowSec;
             this.notifyState();
+          } else {
+            // Preserve interim text so that abrupt stops never discard spoken words
+            if (res[0] && res[0].transcript) {
+              this.latestInterimTranscript = res[0].transcript;
+            }
           }
         }
       };
@@ -278,6 +285,27 @@ export class LiveMeetingEngine {
       this.recognition = null;
     }
 
+    // Flush any pending interim speech transcript before stopping
+    if (this.latestInterimTranscript && this.latestInterimTranscript.trim()) {
+      const nowSec = (Date.now() - this.startTime) / 1000;
+      const words = this.latestInterimTranscript.trim().split(/\s+/);
+      const tokenDuration = Math.max(0.2, (nowSec - this.lastTokenTime) / (words.length || 1));
+      words.forEach((w, wIdx) => {
+        const start = Math.max(0, this.lastTokenTime + wIdx * tokenDuration);
+        const end = Math.min(nowSec, start + tokenDuration);
+        const token: WordToken = {
+          word: w,
+          start: parseFloat(start.toFixed(2)),
+          end: parseFloat(end.toFixed(2)),
+          index: this.tokenIndexCounter++,
+          speaker: this.currentSpeaker,
+        };
+        this.committedTokens.push(token);
+        this.onTokenCallback?.(token);
+      });
+      this.latestInterimTranscript = '';
+    }
+
     // Stop MediaRecorder and wait for final data
     const finalAudioBlob: Blob | null = await new Promise((resolve) => {
       if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
@@ -287,12 +315,16 @@ export class LiveMeetingEngine {
           resolve(blob);
         };
         try {
+          if (this.mediaRecorder.state === 'recording') {
+            this.mediaRecorder.requestData();
+          }
           this.mediaRecorder.stop();
         } catch {
           resolve(null);
         }
       } else {
-        resolve(this.recordedChunks.length > 0 ? new Blob(this.recordedChunks, { type: 'audio/webm' }) : null);
+        const mime = this.mediaRecorder?.mimeType || 'audio/webm';
+        resolve(this.recordedChunks.length > 0 ? new Blob(this.recordedChunks, { type: mime }) : null);
       }
     });
 
@@ -315,18 +347,9 @@ export class LiveMeetingEngine {
     const duration = (Date.now() - this.startTime) / 1000;
     const audioUrl = finalAudioBlob ? URL.createObjectURL(finalAudioBlob) : null;
 
-    // Generate unique speaker metadata
-    const speakerIds = Array.from(new Set(this.committedTokens.map((t) => t.speaker || 'Speaker 1')));
-    const speakers: Record<string, SpeakerInfo> = {};
-    const defaultColors = ['#f59e0b', '#06b6d4', '#a855f7', '#f43f5e'];
-
-    speakerIds.forEach((spk, idx) => {
-      speakers[spk] = {
-        id: spk,
-        label: spk,
-        color: defaultColors[idx % defaultColors.length],
-      };
-    });
+    // Run automated speaker diarization across tokens to detect speaker turns
+    const diarizedTokens = diarizeTokens(this.committedTokens);
+    const speakers = extractSpeakerMap(diarizedTokens);
 
     this.notifyState();
 
@@ -334,7 +357,7 @@ export class LiveMeetingEngine {
       audioBlob: finalAudioBlob,
       audioUrl,
       duration,
-      tokens: [...this.committedTokens],
+      tokens: diarizedTokens,
       speakers,
     };
   }

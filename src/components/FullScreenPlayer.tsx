@@ -11,7 +11,6 @@ import {
   Compass,
   Globe,
 } from 'lucide-react';
-import { DeviceStatusBar } from './DeviceStatusBar';
 import {
   attachAudioAnalyser,
   resumeAudioContext,
@@ -160,8 +159,8 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
   activeNoiseType,
   onOpenBrainwaves,
   audioElementRef,
-  isFullscreen = false,
-  onToggleFullscreen,
+  isFullscreen: _isFullscreen = false,
+  onToggleFullscreen: _onToggleFullscreen,
 }) => {
   const [showCaptions, setShowCaptions] = useState(true);
   const [visualMode, setVisualMode] = useState<FullScreenVisualMode>('pulse');
@@ -1062,18 +1061,6 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
         paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 12px)',
       }}
     >
-      {/* Hardware Status Bar (Only in desktop showcase mode, never on real mobile) */}
-      <div className="relative z-10 w-full opacity-90 hidden md:block">
-        <DeviceStatusBar
-          isPlaying={isPlaying}
-          currentTimeFormatted={formatTime(currentTime)}
-          trackTitle={chapterTitle}
-          onOpenVault={() => {}}
-          isFullscreen={isFullscreen}
-          onToggleFullscreen={onToggleFullscreen}
-        />
-      </div>
-
       {/* Top Header Bar: Dead-Center Horizontally Placed AuRA with interactive 'u' to EXIT fullscreen */}
       <div className="relative z-10 flex items-center justify-center pt-2 pb-1 select-none">
         <div

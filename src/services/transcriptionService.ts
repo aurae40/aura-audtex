@@ -5,6 +5,7 @@ export interface TranscriptionResult {
   title: string;
   chapter: string;
   tokens: WordToken[];
+  speakers?: Record<string, { id: string; label: string; color: string }>;
   marginalia: Marginalia[];
   dossier: MilestoneDossier;
   lexicon: Record<string, LexiconEntry>;
