@@ -135,7 +135,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   };
 
   return (
-    <div className="glass-panel px-3 sm:px-4 pt-2 pb-2 pb-safe flex flex-col gap-2 z-40 select-none">
+    <div className="glass-panel px-2.5 sm:px-4 pt-1.5 sm:pt-2 pb-2 pb-safe flex flex-col gap-1.5 sm:gap-2 z-40 select-none shrink-0">
       {/* Interactive Audio Waveform Ribbon (Scrubber Mini-Map) */}
       <div className="px-0.5">
         <WaveformRibbon
@@ -151,9 +151,9 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
       </div>
 
       {/* Primary transport remains touch-safe; less-frequent controls live in one sheet. */}
-      <div className="relative flex items-center justify-between w-full px-4 py-1">
+      <div className="relative flex items-center justify-between w-full px-2 sm:px-4 py-1">
         {/* Left Actions: Live Meeting Toggle & Direct Web Link / Podcast Importer */}
-        <div className="absolute left-1 flex items-center gap-0.5 sm:gap-1 z-10">
+        <div className="absolute left-0.5 sm:left-1 flex items-center gap-0.5 sm:gap-1 z-10">
           {onToggleLiveMeeting && (
             <button
               onClick={onToggleLiveMeeting}
@@ -182,7 +182,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
         </div>
 
         {/* Three large primary transport controls (touch-safe >= 48px) */}
-        <div className="flex items-center justify-center gap-6 sm:gap-8 mx-auto">
+        <div className="flex items-center justify-center gap-4 sm:gap-8 mx-auto">
           <button
             onClick={onRewind10}
             className="apple-btn-secondary w-12 h-12 rounded-full flex items-center justify-center text-stone-700 dark:text-stone-300 hover:text-stone-950 dark:hover:text-white transition active:scale-95 shadow-sm"
@@ -317,10 +317,10 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
       </div>
 
       {/* Modern Edgeless Floating Bottom Navigation Bar */}
-      <div className="w-full pt-1.5 flex items-center justify-around text-stone-500 dark:text-stone-400">
+      <div className="w-full pt-1 flex items-center justify-between px-1 sm:justify-around text-stone-500 dark:text-stone-400">
         <button
           onClick={() => onSelectTab('book')}
-          className={`flex flex-col items-center gap-1 transition-all py-1.5 px-3 rounded-full ${
+          className={`flex flex-col items-center gap-0.5 sm:gap-1 transition-all py-1 sm:py-1.5 px-2 sm:px-3 rounded-full ${
             activeTab === 'book'
               ? 'text-stone-950 dark:text-white font-semibold bg-black/[0.04] dark:bg-white/[0.07] shadow-sm'
               : 'hover:text-stone-900 dark:hover:text-stone-200'
@@ -336,7 +336,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
         <button
           onClick={() => onSelectTab('insights')}
-          className={`flex flex-col items-center gap-1 transition-all py-1.5 px-3 rounded-full ${
+          className={`flex flex-col items-center gap-0.5 sm:gap-1 transition-all py-1 sm:py-1.5 px-2 sm:px-3 rounded-full ${
             activeTab === 'insights'
               ? 'text-stone-950 dark:text-white font-semibold bg-black/[0.04] dark:bg-white/[0.07] shadow-sm'
               : 'hover:text-stone-900 dark:hover:text-stone-200'
@@ -352,7 +352,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
         <button
           onClick={() => onSelectTab('reflections')}
-          className={`flex flex-col items-center gap-1 transition-all py-1.5 px-3 rounded-full relative ${
+          className={`flex flex-col items-center gap-0.5 sm:gap-1 transition-all py-1 sm:py-1.5 px-2 sm:px-3 rounded-full relative ${
             activeTab === 'reflections'
               ? 'text-stone-950 dark:text-white font-semibold bg-black/[0.04] dark:bg-white/[0.07] shadow-sm'
               : 'hover:text-stone-900 dark:hover:text-stone-200'
@@ -376,7 +376,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
         <button
           onClick={() => onSelectTab('dossier')}
-          className={`flex flex-col items-center gap-1 transition-all py-1.5 px-3 rounded-full relative ${
+          className={`flex flex-col items-center gap-0.5 sm:gap-1 transition-all py-1 sm:py-1.5 px-2 sm:px-3 rounded-full relative ${
             activeTab === 'dossier'
               ? 'text-stone-950 dark:text-white font-semibold bg-black/[0.04] dark:bg-white/[0.07] shadow-sm'
               : 'hover:text-stone-900 dark:hover:text-stone-200'
@@ -395,7 +395,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
         <button
           onClick={() => onSelectTab('map')}
-          className={`flex flex-col items-center gap-1 transition-all py-1.5 px-3 rounded-full ${
+          className={`flex flex-col items-center gap-0.5 sm:gap-1 transition-all py-1 sm:py-1.5 px-2 sm:px-3 rounded-full ${
             activeTab === 'map'
               ? 'text-stone-950 dark:text-white font-semibold bg-black/[0.04] dark:bg-white/[0.07] shadow-sm'
               : 'hover:text-stone-900 dark:hover:text-stone-200'

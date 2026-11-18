@@ -1783,7 +1783,7 @@ export function App() {
           )}
 
           {/* Active Tab Viewport */}
-          <div className="flex-1 overflow-hidden relative flex flex-col">
+          <div className="flex-1 overflow-hidden relative flex flex-col min-h-0">
             {activeTab === 'book' && (
               <BookReader
                 title={bookTitle}

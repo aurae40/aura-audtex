@@ -331,8 +331,9 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
     const BAR_COUNT = 64;
     const currentHeights = new Float32Array(BAR_COUNT);
 
-    const CSS_WIDTH = 480;
-    const CSS_HEIGHT = 260;
+    const isMobileScreen = typeof window !== 'undefined' && window.innerWidth < 640;
+    const CSS_WIDTH = isMobileScreen ? Math.min(window.innerWidth - 32, 380) : 480;
+    const CSS_HEIGHT = isMobileScreen ? 180 : 240;
 
     const render = () => {
       // High-DPI Canvas Scaling
@@ -1098,17 +1099,17 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
       </div>
 
       {/* Center Section: Immersive Visualizer Canvas & Controls */}
-      <div className="relative z-10 flex flex-col items-center justify-center text-center my-auto space-y-3 max-w-sm sm:max-w-md md:max-w-lg mx-auto w-full">
+      <div className="relative z-10 flex flex-col items-center justify-center text-center my-auto space-y-2 sm:space-y-3 max-w-sm sm:max-w-md md:max-w-lg mx-auto w-full min-h-0 flex-1 overflow-y-auto">
         {/* Radial Ambient Sunburst Glow */}
-        <div className="relative flex items-center justify-center w-full">
+        <div className="relative flex items-center justify-center w-full shrink-0">
           <div
             ref={glowRef}
-            className="absolute w-64 h-64 rounded-full blur-3xl pointer-events-none opacity-25 transition-transform duration-100 ease-out"
+            className="absolute w-48 h-48 sm:w-64 sm:h-64 rounded-full blur-3xl pointer-events-none opacity-25 transition-transform duration-100 ease-out"
             style={{ background: 'var(--accent)' }}
           />
 
           {/* Pure Borderless & Backgroundless Canvas Container */}
-          <div className="relative w-full h-60 sm:h-72 flex flex-col items-center justify-center">
+          <div className="relative w-full h-36 sm:h-56 max-h-[220px] flex flex-col items-center justify-center shrink-0">
             <canvas
               ref={canvasRef}
               className="w-full h-full object-contain"
@@ -1117,8 +1118,8 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
         </div>
 
         {/* 6 Dedicated Visualizer Types Selector - Edgeless Floating Glass Capsule */}
-        <div className="flex items-center justify-center pt-0.5">
-          <div className="flex items-center gap-1 bg-white/[0.05] p-1 rounded-full max-w-full overflow-x-auto scrollbar-none backdrop-blur-xl shadow-lg">
+        <div className="w-full flex items-center justify-start sm:justify-center overflow-x-auto scrollbar-none py-0.5 px-1 shrink-0">
+          <div className="flex items-center gap-1 bg-white/[0.05] p-1 rounded-full mx-auto backdrop-blur-xl shadow-lg shrink-0">
             {VISUALIZER_MODES.map((type) => {
               const Icon = type.icon;
               const isActive = visualMode === type.id;
@@ -1126,7 +1127,7 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
                 <button
                   key={type.id}
                   onClick={() => setVisualMode(type.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-sans transition-all duration-200 ${
+                  className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-sans transition-all duration-200 shrink-0 ${
                     isActive
                       ? 'bg-white/[0.14] font-medium shadow-[0_0_14px_var(--accent-glow)]'
                       : 'text-stone-400 hover:text-stone-200 hover:bg-white/[0.06]'
@@ -1173,9 +1174,9 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
         </div>
 
         {/* Spotlight Transcribed Text Card with Integrated CC Toggle - Borderless Glass Slab */}
-        <div className="w-full space-y-1 mt-0.5">
+        <div className="w-full space-y-1 mt-0.5 shrink-0">
           {showCaptions ? (
-            <div className="w-full p-3.5 rounded-2xl bg-black/40 shadow-2xl backdrop-blur-3xl space-y-1.5 animate-in fade-in duration-200">
+            <div className="w-full p-2.5 sm:p-3.5 rounded-2xl bg-black/40 shadow-2xl backdrop-blur-3xl space-y-1 animate-in fade-in duration-200 max-h-20 sm:max-h-28 overflow-y-auto">
               <div className="flex items-center justify-between">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/[0.06] text-[10px] font-sans font-medium text-stone-300">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
@@ -1212,7 +1213,7 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
       </div>
 
       {/* Bottom Audio Transport Controls - Borderless & Floating */}
-      <div className="relative z-10 flex items-center justify-around px-4 pt-2 pb-2">
+      <div className="relative z-10 flex items-center justify-around px-2 sm:px-4 pt-1 sm:pt-2 pb-1 sm:pb-2 shrink-0">
         {/* Speed Pill Button */}
         <button
           onClick={cycleSpeed}

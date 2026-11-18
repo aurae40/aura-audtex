@@ -64,7 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header
-      className="theme-header w-full flex flex-col z-40 select-none backdrop-blur-xl shadow-sm transition-all duration-200"
+      className="theme-header w-full flex flex-col z-40 select-none backdrop-blur-xl shadow-sm transition-all duration-200 shrink-0"
       style={{
         paddingTop: isMobile
           ? 'max(env(safe-area-inset-top, 0px), 8px)'
@@ -72,7 +72,7 @@ export const Header: React.FC<HeaderProps> = ({
       }}
     >
       {/* Global action area: AuRA brand, Sovereign Capsule, Web Link Importer, Vault, Appearance, and Day/Dark Theme */}
-      <div className="px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2">
+      <div className="px-2.5 sm:px-4 py-1.5 sm:py-2.5 flex items-center justify-between gap-1 sm:gap-2">
         {/* Brand Stamp with Interactive 'u' Popout & Fullscreen Trigger */}
         <div
           className="group/aura flex items-center gap-2 cursor-pointer select-none py-0.5 active:scale-95 transition-transform shrink-0"
