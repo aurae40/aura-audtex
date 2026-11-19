@@ -14,6 +14,7 @@ import asyncio
 from typing import List, Dict, Any, Optional
 
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Header, Request, Response
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -23,6 +24,21 @@ app = FastAPI(
     description="State-of-the-art offline speech-to-text with verbatim word timestamps",
     version="2.0.0"
 )
+
+# Persistent Audio Stream Cache Directory
+AUDIO_CACHE_DIR = os.path.join(tempfile.gettempdir(), "aura_audio_cache")
+os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
+
+@app.get("/audio/{filename}")
+async def serve_cached_audio(filename: str):
+    """Serves downloaded web audio stream for local and remote AuRA players."""
+    safe_name = os.path.basename(filename)
+    file_path = os.path.join(AUDIO_CACHE_DIR, safe_name)
+    if os.path.isfile(file_path):
+        ext = os.path.splitext(safe_name)[1].lower()
+        media_type = "audio/mpeg" if ext == ".mp3" else ("audio/webm" if ext == ".webm" else "audio/mp4" if ext == ".m4a" else "application/octet-stream")
+        return FileResponse(file_path, media_type=media_type)
+    raise HTTPException(status_code=404, detail="Audio file not found or expired.")
 
 # Support W3C Private Network Access (allows HTTPS origins to connect to localhost)
 @app.middleware("http")
@@ -687,9 +703,8 @@ async def transcribe_url_endpoint(
     try:
         import yt_dlp
 
-        tmp_dir = tempfile.gettempdir()
-        tmp_id = f"aura_yt_{int(time.time())}_{os.getpid()}"
-        out_template = os.path.join(tmp_dir, f"{tmp_id}.%(ext)s")
+        tmp_id = f"aura_stream_{int(time.time())}_{os.getpid()}"
+        out_template = os.path.join(AUDIO_CACHE_DIR, f"{tmp_id}.%(ext)s")
 
         ydl_opts = {
             'format': 'bestaudio/best',
@@ -699,6 +714,8 @@ async def transcribe_url_endpoint(
             'overwrites': True,
             'max_filesize': MAX_UPLOAD_SIZE,
         }
+
+        is_success = False
 
         async with CONCURRENCY_SEMAPHORE:
             loop = asyncio.get_event_loop()
@@ -775,6 +792,8 @@ async def transcribe_url_endpoint(
             marginalia = build_dynamic_marginalia(tokens, final_duration, title)
 
             device_name = cached_device_info["display_name"] if cached_device_info else "CPU"
+            audio_rel_url = f"/audio/{os.path.basename(tmp_path)}" if tmp_path else None
+            is_success = True
 
             return {
                 "title": title.upper(),
@@ -783,6 +802,7 @@ async def transcribe_url_endpoint(
                 "marginalia": marginalia,
                 "lexicon": lexicon,
                 "duration": round(final_duration, 2),
+                "audio_url": audio_rel_url,
                 "meta": {
                     "engine": "faster-whisper+yt-dlp",
                     "model": model_size,
@@ -802,7 +822,7 @@ async def transcribe_url_endpoint(
             detail=f"Unable to fetch or transcribe web link: {exc}"
         ) from exc
     finally:
-        if tmp_path and os.path.exists(tmp_path):
+        if not is_success and tmp_path and os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
             except Exception:

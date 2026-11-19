@@ -18,6 +18,7 @@ import {
   Radio,
   Globe,
   Square,
+  Volume2,
 } from 'lucide-react';
 import { WaveformRibbon } from './WaveformRibbon';
 
@@ -51,6 +52,9 @@ interface PlayerBarProps {
   liveRecordingDuration?: number;
   onToggleLiveMeeting?: () => void;
   onOpenWebLinkModal?: () => void;
+  hasAudioTrack?: boolean;
+  isVoiceoverActive?: boolean;
+  onToggleVoiceover?: () => void;
 }
 const NOISE_LABELS: Record<BrainNoiseType, string> = {
   gamma40: '40Hz Gamma',
@@ -90,6 +94,9 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   liveRecordingDuration = 0,
   onToggleLiveMeeting,
   onOpenWebLinkModal,
+  hasAudioTrack = false,
+  isVoiceoverActive = false,
+  onToggleVoiceover,
 }) => {
   const [showPlayerOptions, setShowPlayerOptions] = useState(false);
   const playerOptionsRef = useRef<HTMLDivElement | null>(null);
@@ -182,7 +189,14 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
         </div>
 
         {/* Three large primary transport controls (touch-safe >= 48px) */}
-        <div className="flex items-center justify-center gap-4 sm:gap-8 mx-auto">
+        <div className="flex items-center justify-center gap-4 sm:gap-8 mx-auto relative">
+          {/* Voiceover indicator pill when reading transcript without audio track */}
+          {!hasAudioTrack && tokens.length > 0 && (
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-[9px] font-mono text-amber-300 tracking-wider flex items-center gap-1 select-none pointer-events-none shadow-xs backdrop-blur-md whitespace-nowrap">
+              <Volume2 className="w-2.5 h-2.5 text-amber-400" />
+              <span>AI VOICEOVER MODE</span>
+            </div>
+          )}
           <button
             onClick={onRewind10}
             className="apple-btn-secondary w-12 h-12 rounded-full flex items-center justify-center text-stone-700 dark:text-stone-300 hover:text-stone-950 dark:hover:text-white transition active:scale-95 shadow-sm"
@@ -294,6 +308,20 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
               >
                 <Globe className="w-3.5 h-3.5 text-sky-400" />
                 <span>Import Web Link / Podcast</span>
+              </button>
+            )}
+            {onToggleVoiceover && (
+              <button
+                onClick={onToggleVoiceover}
+                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+              >
+                <span className="flex items-center gap-2">
+                  <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                  <span>AI Voiceover (Read Aloud)</span>
+                </span>
+                <span className={isVoiceoverActive ? 'text-amber-300 font-bold' : 'text-stone-500'}>
+                  {isVoiceoverActive ? 'On' : 'Off'}
+                </span>
               </button>
             )}
             <button

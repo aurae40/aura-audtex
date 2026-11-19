@@ -171,6 +171,7 @@ export async function resolveWebAudioOrTranscript(
   tokens?: WordToken[];
   duration?: number;
   speakers?: Record<string, SpeakerInfo>;
+  audioUrl?: string;
   file?: File;
 }> {
   const cleanUrl = url.trim();
@@ -191,12 +192,14 @@ export async function resolveWebAudioOrTranscript(
         const data = await resp.json();
         const diarized = diarizeTokens(data.tokens || []);
         const spkMap = extractSpeakerMap(diarized);
+        const audioUrl = data.audio_url ? `${serverUrl}${data.audio_url}` : undefined;
         return {
           type: 'direct_transcript',
           title: data.title || 'Web Audio Stream',
           tokens: diarized,
           duration: data.duration || (diarized.length > 0 ? diarized[diarized.length - 1].end : 0),
           speakers: spkMap,
+          audioUrl,
         };
       }
     }

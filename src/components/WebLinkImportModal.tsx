@@ -29,7 +29,8 @@ interface WebLinkImportModalProps {
     title: string,
     tokens: WordToken[],
     duration: number,
-    speakers?: Record<string, SpeakerInfo>
+    speakers?: Record<string, SpeakerInfo>,
+    audioUrl?: string
   ) => void;
 }
 
@@ -100,7 +101,13 @@ export const WebLinkImportModal: React.FC<WebLinkImportModalProps> = ({
 
       setIsLoading(false);
       if (result.type === 'direct_transcript' && result.tokens && result.tokens.length > 0) {
-        onImportTranscriptDirect(result.title, result.tokens, result.duration || 0, result.speakers);
+        onImportTranscriptDirect(
+          result.title,
+          result.tokens,
+          result.duration || 0,
+          result.speakers,
+          result.audioUrl
+        );
         onClose();
         return;
       }

@@ -67,6 +67,7 @@ import { attachAudioAnalyser, resumeAudioContext } from './services/audioAnalyse
 import { detectSilenceGaps } from './services/waveformService';
 import { getActiveCountryHeritage, updateLockScreenMediaSession } from './services/countryService';
 import { diarizeTokens, extractSpeakerMap } from './services/diarizationService';
+import { voiceoverManager } from './services/voiceoverService';
 import {
   requestNativeFullscreenSynchronous,
   exitNativeFullscreenSynchronous,
@@ -572,6 +573,7 @@ export function App() {
   const [isLiveRecording, setIsLiveRecording] = useState(false);
   const [liveRecordingDuration, setLiveRecordingDuration] = useState(0);
   const [isWebLinkModalOpen, setIsWebLinkModalOpen] = useState(false);
+  const [isVoiceoverMode, setIsVoiceoverMode] = useState(false);
   const liveEngineRef = useRef<LiveMeetingEngine | null>(null);
   const liveDurationTimerRef = useRef<number | null>(null);
 
@@ -797,7 +799,8 @@ export function App() {
     title: string,
     incomingTokens: WordToken[],
     mediaDuration: number,
-    incomingSpeakers?: Record<string, SpeakerInfo>
+    incomingSpeakers?: Record<string, SpeakerInfo>,
+    audioUrl?: string
   ) => {
     setIsWebLinkModalOpen(false);
     setBookTitle(title);
@@ -812,6 +815,18 @@ export function App() {
     setDuration(mediaDuration);
     setCurrentTime(0);
     setActiveTab('book');
+
+    // Attach real audio track if present, otherwise enable Voiceover mode
+    if (audioUrl) {
+      setAudioSource(audioUrl);
+      if (audioElementRef.current) {
+        audioElementRef.current.src = audioUrl;
+        audioElementRef.current.currentTime = 0;
+      }
+      setIsVoiceoverMode(false);
+    } else {
+      setIsVoiceoverMode(true);
+    }
 
     const voc = extractTranscriptVocabulary(incomingTokens);
     setAccumulatedLexicon((prev) => ({ ...prev, ...voc }));
@@ -850,13 +865,24 @@ export function App() {
       highlights: [],
       reflections: [],
       userSummary: '',
-      hasAudio: false,
+      hasAudio: Boolean(audioUrl),
       engineUsed: 'Web Link Transcript Importer',
     };
     saveRecordingSession(sessionRecord).catch((e) => console.warn('Web import session save warning:', e));
 
+    if (audioUrl) {
+      fetch(audioUrl)
+        .then((r) => r.blob())
+        .then((blob) => {
+          updateSessionAnnotations(sessionId, { hasAudio: true, audioBlob: blob } as any).catch(() => {});
+        })
+        .catch((e) => console.warn('Audio stream caching note:', e));
+    }
+
     setToastNotification({
-      message: `🌐 Imported "${title}" (${incomingTokens.length} synchronized words)!`,
+      message: audioUrl
+        ? `🌐 Ingested "${title}" with Full Audio & Verbatim Timestamps!`
+        : `🌐 Imported "${title}" (${incomingTokens.length} words, AI Voiceover Ready)!`,
       type: 'info',
     });
   };
@@ -1052,30 +1078,48 @@ export function App() {
   };
 
   const startPlay = () => {
-    // If no audio is loaded, do not prompt user to open an audio file.
-    // That role belongs exclusively to the earphone/headphones icon on the empty interface.
-    if (!activeBlobUrlRef.current && (!audioElementRef.current || !audioElementRef.current.src)) {
+    const hasAudio = Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src));
+    const hasTokens = tokens && tokens.length > 0;
+
+    if (!hasAudio && !hasTokens) {
       return;
     }
 
     setIsPlaying(true);
-    resumeAudioContext();
-    if (audioElementRef.current) {
-      attachAudioAnalyser(audioElementRef.current);
-    }
-    if (audioElementRef.current && audioElementRef.current.src) {
-      audioElementRef.current.playbackRate = playbackRate;
-      const playPromise = audioElementRef.current.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((err) => {
-          console.warn('[AuRA] Autoplay gesture needed:', err);
-          setIsPlaying(false);
-          setToastNotification({
-            message: 'Tap anywhere to start audio (browser autoplay permission).',
-            type: 'info',
-          });
-        });
+
+    if (hasAudio && !isVoiceoverMode) {
+      resumeAudioContext();
+      if (audioElementRef.current) {
+        attachAudioAnalyser(audioElementRef.current);
       }
+      if (audioElementRef.current && audioElementRef.current.src) {
+        audioElementRef.current.playbackRate = playbackRate;
+        const playPromise = audioElementRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.warn('[AuRA] Autoplay gesture needed:', err);
+            setIsPlaying(false);
+            setToastNotification({
+              message: 'Tap anywhere to start audio (browser autoplay permission).',
+              type: 'info',
+            });
+          });
+        }
+      }
+    } else if (hasTokens) {
+      // AI Voiceover Mode (Text-to-Speech Narrator)
+      const startIndex = Math.max(0, tokens.findIndex((t) => t.start >= currentTime - 0.1));
+      voiceoverManager.start(
+        tokens,
+        startIndex === -1 ? 0 : startIndex,
+        playbackRate,
+        (_tokIdx, timeSec) => {
+          setCurrentTime(timeSec);
+        },
+        () => {
+          setIsPlaying(false);
+        }
+      );
     }
   };
 
@@ -1085,15 +1129,25 @@ export function App() {
       audioElementRef.current.pause();
     }
     if (timerRef.current) clearInterval(timerRef.current);
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.pause();
-    }
+    voiceoverManager.pause();
   };
 
   const handleSeek = (time: number) => {
     setCurrentTime(time);
-    if (audioElementRef.current && audioElementRef.current.src) {
+    const hasAudio = Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src));
+    if (hasAudio && !isVoiceoverMode && audioElementRef.current) {
       audioElementRef.current.currentTime = time;
+    } else if ((isVoiceoverMode || !hasAudio) && isPlaying && tokens.length > 0) {
+      const startIndex = Math.max(0, tokens.findIndex((t) => t.start >= time - 0.1));
+      voiceoverManager.start(
+        tokens,
+        startIndex === -1 ? 0 : startIndex,
+        playbackRate,
+        (_tokIdx, timeSec) => {
+          setCurrentTime(timeSec);
+        },
+        () => setIsPlaying(false)
+      );
     }
   };
 
@@ -1109,6 +1163,9 @@ export function App() {
     setPlaybackRate(rate);
     if (audioElementRef.current) {
       audioElementRef.current.playbackRate = rate;
+    }
+    if (voiceoverManager.isSpeaking() && tokens.length > 0) {
+      handleSeek(currentTime);
     }
   };
 
@@ -1512,6 +1569,7 @@ export function App() {
         if (audioElementRef.current) {
           audioElementRef.current.currentTime = resumePos;
         }
+        setIsVoiceoverMode(false);
         setActiveTab('book');
         startPlay();
         setToastNotification({
@@ -1519,10 +1577,11 @@ export function App() {
           type: 'info',
         });
       } else {
+        setIsVoiceoverMode(true);
         setActiveTab('book');
         setToastNotification({
-          message: `Restored transcript: "${session.title}". Audio was not saved — please re-select audio file to hear playback.`,
-          type: 'warning',
+          message: `Restored transcript: "${session.title}". AI Voiceover Narrator is active — tap Play to listen!`,
+          type: 'info',
         });
       }
     } catch (err) {
@@ -1891,6 +1950,17 @@ export function App() {
             liveRecordingDuration={liveRecordingDuration}
             onToggleLiveMeeting={handleToggleLiveMeeting}
             onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
+            hasAudioTrack={Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src))}
+            isVoiceoverActive={isVoiceoverMode}
+            onToggleVoiceover={() => {
+              setIsVoiceoverMode((prev) => {
+                const next = !prev;
+                if (isPlaying) {
+                  pausePlay();
+                }
+                return next;
+              });
+            }}
           />
         </div>
       ) : (
@@ -2022,6 +2092,17 @@ export function App() {
             liveRecordingDuration={liveRecordingDuration}
             onToggleLiveMeeting={handleToggleLiveMeeting}
             onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
+            hasAudioTrack={Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src))}
+            isVoiceoverActive={isVoiceoverMode}
+            onToggleVoiceover={() => {
+              setIsVoiceoverMode((prev) => {
+                const next = !prev;
+                if (isPlaying) {
+                  pausePlay();
+                }
+                return next;
+              });
+            }}
           />
         </div>
       )}
