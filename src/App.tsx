@@ -796,12 +796,19 @@ export function App() {
   const handleImportTranscriptDirect = (
     title: string,
     incomingTokens: WordToken[],
-    mediaDuration: number
+    mediaDuration: number,
+    incomingSpeakers?: Record<string, SpeakerInfo>
   ) => {
     setIsWebLinkModalOpen(false);
     setBookTitle(title);
     setChapterTitle('Web Link Codex');
-    setTokens(incomingTokens);
+    const diarized = diarizeTokens(incomingTokens);
+    const spkMap =
+      incomingSpeakers && Object.keys(incomingSpeakers).length > 0
+        ? incomingSpeakers
+        : extractSpeakerMap(diarized);
+    setTokens(diarized);
+    setSpeakers(spkMap);
     setDuration(mediaDuration);
     setCurrentTime(0);
     setActiveTab('book');

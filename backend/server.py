@@ -644,6 +644,171 @@ async def transcribe_audio(
                 pass
 
 
+class TranscribeUrlRequest(BaseModel):
+    url: str
+    model_size: Optional[str] = "tiny"
+    language: Optional[str] = None
+
+
+@app.post("/transcribe-url")
+async def transcribe_url_endpoint(
+    req: TranscribeUrlRequest,
+    request: Request,
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Downloads or extracts audio from any URL (YouTube Videos, YouTube Shorts,
+    SoundCloud, Podcasts, direct audio links) using yt-dlp and transcribes
+    with microsecond-precision verbatim word timestamps via Faster-Whisper.
+    """
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    enforce_rate_limit(client_ip)
+
+    required_token = os.environ.get("AURA_AUTH_TOKEN")
+    if required_token:
+        expected_header = f"Bearer {required_token}"
+        if authorization != expected_header:
+            raise HTTPException(status_code=401, detail="Unauthorized: invalid or missing audio engine token.")
+
+    url = req.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="No URL provided.")
+
+    model_size = req.model_size if req.model_size in ("tiny", "base", "small") else "tiny"
+    model = get_whisper_model(model_size)
+    if not model:
+        raise HTTPException(status_code=503, detail=f"Whisper model '{model_size}' could not be initialized.")
+
+    start_perf = time.time()
+    tmp_path = None
+    title = "Web Audio Stream"
+    duration = 0.0
+
+    try:
+        import yt_dlp
+
+        tmp_dir = tempfile.gettempdir()
+        tmp_id = f"aura_yt_{int(time.time())}_{os.getpid()}"
+        out_template = os.path.join(tmp_dir, f"{tmp_id}.%(ext)s")
+
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': out_template,
+            'quiet': True,
+            'no_warnings': True,
+            'overwrites': True,
+            'max_filesize': MAX_UPLOAD_SIZE,
+        }
+
+        async with CONCURRENCY_SEMAPHORE:
+            loop = asyncio.get_event_loop()
+
+            def download_worker():
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    target_file = ydl.prepare_filename(info)
+                    return (
+                        info.get('title') or 'Web Audio Stream',
+                        float(info.get('duration') or 0.0),
+                        target_file
+                    )
+
+            title, duration, tmp_path = await loop.run_in_executor(None, download_worker)
+
+            def transcribe_worker():
+                segments, info = model.transcribe(
+                    tmp_path,
+                    beam_size=5,
+                    word_timestamps=True,
+                    vad_filter=True,
+                    vad_parameters=dict(
+                        min_silence_duration_ms=450,
+                        speech_pad_ms=250,
+                    ),
+                    language=req.language,
+                )
+                return list(segments), info
+
+            segments, info = await loop.run_in_executor(None, transcribe_worker)
+
+            tokens: List[Dict[str, Any]] = []
+            token_index = 0
+
+            for segment in segments:
+                if segment.words:
+                    for w in segment.words:
+                        word_str = w.word.strip()
+                        if word_str:
+                            tokens.append({
+                                "word": word_str,
+                                "start": round(w.start, 2),
+                                "end": round(max(w.start + 0.05, w.end), 2),
+                                "index": token_index,
+                            })
+                            token_index += 1
+                elif segment.text.strip():
+                    words_in_seg = segment.text.strip().split()
+                    if words_in_seg:
+                        step = (segment.end - segment.start) / len(words_in_seg)
+                        for sw_idx, sw in enumerate(words_in_seg):
+                            s = segment.start + sw_idx * step
+                            e = max(s + 0.05, min(segment.end, s + step))
+                            tokens.append({
+                                "word": sw,
+                                "start": round(s, 2),
+                                "end": round(e, 2),
+                                "index": token_index,
+                            })
+                            token_index += 1
+
+            if not tokens:
+                raise HTTPException(
+                    status_code=422,
+                    detail="No audible spoken words could be recognized from this web link."
+                )
+
+            final_duration = tokens[-1]["end"] if tokens else duration
+            elapsed_sec = time.time() - start_perf
+            speedup = final_duration / max(0.01, elapsed_sec)
+
+            lexicon = extract_scholarly_lexicon(tokens, final_duration)
+            marginalia = build_dynamic_marginalia(tokens, final_duration, title)
+
+            device_name = cached_device_info["display_name"] if cached_device_info else "CPU"
+
+            return {
+                "title": title.upper(),
+                "chapter": f"CH. I • DIRECT WEB IMPORT ({len(tokens)} WORDS)",
+                "tokens": tokens,
+                "marginalia": marginalia,
+                "lexicon": lexicon,
+                "duration": round(final_duration, 2),
+                "meta": {
+                    "engine": "faster-whisper+yt-dlp",
+                    "model": model_size,
+                    "hardware": device_name,
+                    "durationSec": round(final_duration, 2),
+                    "transcriptionTimeSec": round(elapsed_sec, 2),
+                    "speedupFactor": f"{speedup:.1f}x faster than real-time",
+                    "language": info.language,
+                }
+            }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unable to fetch or transcribe web link: {exc}"
+        ) from exc
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
 # Serve production frontend if built so mobile devices on LAN can access http://<LAN_IP>:8000/
 dist_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dist")
 if os.path.isdir(dist_dir):
