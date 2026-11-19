@@ -34,14 +34,16 @@ export function renderSovereignFluidPlasma(
   const colors = country.colors && country.colors.length > 0 ? country.colors : ['#f59e0b', '#06b6d4', '#dc2626'];
   const numColors = colors.length;
 
-  // Base gravitational core size
-  const baseR = 72;
+  const isMobile = cx < 200 || (typeof window !== 'undefined' && window.innerWidth < 640);
+
+  // Base gravitational core size scaled appropriately for mobile viewports
+  const baseR = isMobile ? 42 : 72;
   const coreR = baseR * (1 + (isSignalPresent ? bassEnergy * 0.32 : Math.sin(timeSec * 1.6) * 0.04));
 
   ctx.save();
 
   // 1. Edgeless Volumetric Nebula Cloud (Soft ambient light pool in authentic flag colors)
-  const maxSpan = Math.max(240, baseR * 3.6);
+  const maxSpan = isMobile ? 160 : Math.max(240, baseR * 3.6);
   const nebulaGlow = ctx.createRadialGradient(cx, cy, 10, cx, cy, maxSpan);
   nebulaGlow.addColorStop(0, `${colors[0]}35`);
   if (numColors > 1) nebulaGlow.addColorStop(0.38, `${colors[1]}28`);
@@ -59,14 +61,14 @@ export function renderSovereignFluidPlasma(
     const streamAngle = (cIdx * Math.PI * 2) / numColors;
     const speed = timeSec * (0.42 + cIdx * 0.1);
     const audioVal = bars[(cIdx * 6 + 2) % bars.length] || 0.15;
-    const amp = 24 + (isSignalPresent ? audioVal * 36 + bassEnergy * 20 : Math.sin(timeSec * 2 + cIdx) * 8);
+    const amp = (isMobile ? 16 : 24) + (isSignalPresent ? audioVal * 36 + bassEnergy * 20 : Math.sin(timeSec * 2 + cIdx) * 8);
 
     // Multi-layered soft fluid volumes
-    const layers = 3;
+    const layers = isMobile ? 2 : 3;
     for (let l = 0; l < layers; l++) {
       ctx.beginPath();
       const phase = (l * Math.PI * 2) / layers;
-      const steps = 64;
+      const steps = isMobile ? 36 : 64;
 
       for (let i = 0; i <= steps; i++) {
         const theta = (i / steps) * Math.PI * 2;
@@ -99,7 +101,7 @@ export function renderSovereignFluidPlasma(
 
   // 3. Floating Zero-Gravity Luminous Embers & Droplets (Soft, borderless pearls)
   ctx.save();
-  const emberCount = 24;
+  const emberCount = isMobile ? 14 : 24;
   for (let e = 0; e < emberCount; e++) {
     const colIdx = e % numColors;
     const col = colors[colIdx];

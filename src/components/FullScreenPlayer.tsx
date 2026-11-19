@@ -332,12 +332,14 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
     const currentHeights = new Float32Array(BAR_COUNT);
 
     const isMobileScreen = typeof window !== 'undefined' && window.innerWidth < 640;
-    const CSS_WIDTH = isMobileScreen ? Math.min(window.innerWidth - 32, 380) : 480;
-    const CSS_HEIGHT = isMobileScreen ? 180 : 240;
+    const CSS_WIDTH = isMobileScreen ? Math.min(window.innerWidth - 24, 380) : 480;
+    const CSS_HEIGHT = isMobileScreen ? 175 : 220;
 
     const render = () => {
-      // High-DPI Canvas Scaling
-      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      // High-DPI Canvas Scaling: Cap at 1.75 on mobile to guarantee rock-solid 60 FPS
+      const dpr = isMobileScreen
+        ? Math.min(window.devicePixelRatio || 1, 1.75)
+        : Math.min(window.devicePixelRatio || 1, 2.5);
       const targetCanvasWidth = Math.round(CSS_WIDTH * dpr);
       const targetCanvasHeight = Math.round(CSS_HEIGHT * dpr);
       if (canvas.width !== targetCanvasWidth || canvas.height !== targetCanvasHeight) {
@@ -375,12 +377,12 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
         const cy = CSS_HEIGHT * 0.52;
 
         // 1. Central Symmetrical Audio Waveform (radiating vertically up AND down)
-        const activeBars = 38;
-        const barWidth = 4.8;
-        const spacing = 3.2;
+        const activeBars = isMobileScreen ? 30 : 38;
+        const barWidth = isMobileScreen ? 4.2 : 4.8;
+        const spacing = isMobileScreen ? 2.8 : 3.2;
         const totalW = activeBars * barWidth + (activeBars - 1) * spacing;
         const startX = (CSS_WIDTH - totalW) / 2;
-        const maxAmplitude = 75;
+        const maxAmplitude = isMobileScreen ? 58 : 75;
 
         // Dotted Horizontal Horizon Line
         ctx.strokeStyle = 'rgba(251, 146, 60, 0.35)';
@@ -450,9 +452,9 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
         portalWavePhaseRef.current += 0.035;
         const phase = portalWavePhaseRef.current;
 
-        const gateWidth = 180;
+        const gateWidth = isMobileScreen ? 150 : 180;
         const startX = cx - gateWidth / 2;
-        const waveAmp = 14 + bassEnergy * 26;
+        const waveAmp = (isMobileScreen ? 10 : 14) + bassEnergy * (isMobileScreen ? 18 : 26);
 
         ctx.save();
         ctx.globalCompositeOperation = 'lighter'; // Luminous optical bloom
@@ -600,8 +602,10 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
 
         // 4. Render 3D Multi-Tier Particle Cloud with Dynamic Audio RGB
         const projectedPoints: { px: number; py: number; r: number; g: number; b: number; alpha: number; arm?: number }[] = [];
+        const maxPoints = isMobileScreen ? 140 : nebulaPointsRef.current.length;
+        const activeNebulaPoints = nebulaPointsRef.current.slice(0, maxPoints);
 
-        nebulaPointsRef.current.forEach((pt) => {
+        activeNebulaPoints.forEach((pt) => {
           pt.theta += pt.speed;
           const freqLevel = isSignalPresent
             ? bars[pt.freqIdx]
@@ -712,9 +716,9 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
         solarRotRef.current += 0.005 + bassEnergy * 0.012;
         const rot = solarRotRef.current;
 
-        const innerR = 40 + bassEnergy * 10;
-        const maxR = 105;
-        const numPoints = 64;
+        const innerR = (isMobileScreen ? 32 : 40) + bassEnergy * (isMobileScreen ? 7 : 10);
+        const maxR = isMobileScreen ? 76 : 105;
+        const numPoints = isMobileScreen ? 40 : 64;
 
         ctx.save();
         ctx.globalCompositeOperation = 'lighter'; // Luminous optical bloom
@@ -893,9 +897,9 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
         ctx.save();
 
         // 1. Giant Glowing Sliced Synthwave Sun (Floating in center)
-        const sunRadius = 40;
+        const sunRadius = isMobileScreen ? 30 : 40;
         const sunX = cx;
-        const sunY = horizonY - 12;
+        const sunY = horizonY - 10;
 
         const sunGrad = ctx.createLinearGradient(sunX, sunY - sunRadius, sunX, sunY + sunRadius);
         sunGrad.addColorStop(0, '#fef08a');
@@ -933,7 +937,7 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
         ctx.lineWidth = 1.8;
         ctx.beginPath();
 
-        const mSpan = 360;
+        const mSpan = isMobileScreen ? 290 : 360;
         const mStart = cx - mSpan / 2;
         const mSteps = 32;
 
@@ -952,7 +956,7 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
         ctx.stroke();
 
         // 3. Floating Holographic Grid Lines (Fade smoothly into space - NO hard boundaries!)
-        const gridW = 380;
+        const gridW = isMobileScreen ? 300 : 380;
         const floorH = CSS_HEIGHT - horizonY - 10;
 
         // Longitudinal Perspective Lines
@@ -1111,7 +1115,7 @@ export const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
           />
 
           {/* Pure Borderless & Backgroundless Canvas Container */}
-          <div className="relative w-full h-32 sm:h-52 max-h-[220px] flex flex-col items-center justify-center shrink-0">
+          <div className="relative w-full h-44 sm:h-56 max-h-[240px] flex flex-col items-center justify-center shrink-0">
             <canvas
               ref={canvasRef}
               className="w-full h-full object-contain"
