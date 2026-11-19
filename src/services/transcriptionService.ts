@@ -73,7 +73,7 @@ export const ENGINE_PROFILES: Record<TranscriberEngine, EngineProfile> = {
   },
 };
 
-export const DEFAULT_HTTPS_TUNNEL = 'https://discuss-behavior-drum-surrey.trycloudflare.com';
+export const DEFAULT_HTTPS_TUNNEL = 'https://visited-adjustments-condition-fiber.trycloudflare.com';
 
 export function getStoredServerUrl(): string {
   const saved = localStorage.getItem(LOCAL_SERVER_URL_STORAGE);

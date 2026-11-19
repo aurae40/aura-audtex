@@ -84,7 +84,7 @@ export const ImportConsentModal: React.FC<ImportConsentModalProps> = ({
         status = await checkLocalServerHealth(serverUrl);
         // If initial check is offline and page is on HTTPS, check the active secure tunnel
         if (!status.online && typeof window !== 'undefined' && window.location.protocol === 'https:') {
-          const tunnelUrl = 'https://discuss-behavior-drum-surrey.trycloudflare.com';
+          const tunnelUrl = 'https://visited-adjustments-condition-fiber.trycloudflare.com';
           const tunnelStatus = await checkLocalServerHealth(tunnelUrl);
           if (tunnelStatus.online) {
             status = tunnelStatus;
@@ -327,7 +327,7 @@ export const ImportConsentModal: React.FC<ImportConsentModalProps> = ({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      const tunnelUrl = 'https://discuss-behavior-drum-surrey.trycloudflare.com';
+                      const tunnelUrl = 'https://visited-adjustments-condition-fiber.trycloudflare.com';
                       setServerUrl(tunnelUrl);
                       checkServer(tunnelUrl);
                     }}
