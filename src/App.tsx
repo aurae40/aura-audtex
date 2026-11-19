@@ -575,13 +575,14 @@ export function App() {
   const liveEngineRef = useRef<LiveMeetingEngine | null>(null);
   const liveDurationTimerRef = useRef<number | null>(null);
 
-  const handleUpdateSpeakerName = (id: string, newName: string) => {
+  const handleUpdateSpeakerName = (id: string, newName: string, newColor?: string) => {
     setSpeakers((prev) => {
       const updated = {
         ...prev,
         [id]: {
           ...(prev[id] || { id, color: '#f59e0b' }),
           label: newName,
+          ...(newColor ? { color: newColor } : {}),
         },
       };
       if (currentSessionId && !currentSessionId.startsWith('session_default')) {
@@ -590,7 +591,7 @@ export function App() {
       return updated;
     });
     setToastNotification({
-      message: `Speaker renamed to "${newName}"`,
+      message: `Speaker updated to "${newName}"`,
       type: 'info',
     });
   };

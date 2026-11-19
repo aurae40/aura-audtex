@@ -156,17 +156,32 @@ export function diarizeTokens(tokens: WordToken[]): WordToken[] {
 
   let currentSpeaker = 'Speaker 1';
   let lastEnd = tokens[0].start;
+  let wordsInCurrentTurn = 0;
 
   return tokens.map((token, index) => {
     const gap = token.start - lastEnd;
     const prevWord = index > 0 ? tokens[index - 1].word : '';
     const isPunctuationEnd = /[.!?]$/.test(prevWord);
+    const isQuestion = /\?$/.test(prevWord);
 
-    // Alternate speakers when conversational pauses occur (>1.3s, or >0.8s after sentence termination)
-    if (gap > 1.3 || (isPunctuationEnd && gap > 0.8)) {
+    // Dynamic conversational turn-taking heuristic:
+    // 1. Definite conversational pause gap > 1.2s
+    // 2. Question-answer response gap > 0.45s after '?'
+    // 3. Sentence boundary pause > 0.70s after '.' or '!'
+    // 4. Natural turn transition after substantial discourse (>= 28 words) with pause > 0.5s
+    const shouldSwitchSpeaker =
+      wordsInCurrentTurn >= 4 &&
+      (gap > 1.2 ||
+        (isQuestion && gap > 0.45) ||
+        (isPunctuationEnd && gap > 0.7) ||
+        (wordsInCurrentTurn >= 28 && isPunctuationEnd && gap > 0.5));
+
+    if (shouldSwitchSpeaker) {
       currentSpeaker = currentSpeaker === 'Speaker 1' ? 'Speaker 2' : 'Speaker 1';
+      wordsInCurrentTurn = 0;
     }
 
+    wordsInCurrentTurn++;
     lastEnd = token.end;
     return {
       ...token,

@@ -19,6 +19,13 @@ import {
   Edit3,
 } from 'lucide-react';
 
+function formatTime(sec: number): string {
+  if (isNaN(sec) || sec < 0) return '00:00';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
 interface BookReaderProps {
   title?: string;
   chapter?: string;
@@ -47,7 +54,7 @@ interface BookReaderProps {
   isPlaying?: boolean;
   onPause?: () => void;
   speakers?: Record<string, { id: string; label: string; color: string }>;
-  onUpdateSpeakerName?: (id: string, newName: string) => void;
+  onUpdateSpeakerName?: (id: string, newName: string, newColor?: string) => void;
   onResume?: () => void;
   onUpdateEntry?: (id: string, updates: Partial<LexiconEntry>) => void;
   language?: string;
@@ -92,6 +99,7 @@ export const BookReader: React.FC<BookReaderProps> = ({
   // Speaker Renaming State
   const [renamingSpeakerId, setRenamingSpeakerId] = useState<string | null>(null);
   const [speakerRenameValue, setSpeakerRenameValue] = useState('');
+  const [selectedSpeakerColor, setSelectedSpeakerColor] = useState<string>('#f59e0b');
 
   const focusBeam = true;
   const [focusOpacity, setFocusOpacity] = useState<number>(0.97);
@@ -254,6 +262,52 @@ export const BookReader: React.FC<BookReaderProps> = ({
     if (currentTime >= tokens[tokens.length - 1].start) return tokens.length - 1;
     return -1;
   }, [tokens, currentTime]);
+
+  // Automated Speaker Diarization: Group tokens into structured speaker turns & dialogue blocks
+  const speakerBlocks = useMemo(() => {
+    if (!tokens || tokens.length === 0) return [];
+
+    const blocks: {
+      speakerId: string;
+      speakerLabel: string;
+      speakerColor: string;
+      speakerStyle: { bg: string; text: string; border: string };
+      startTime: number;
+      tokens: WordToken[];
+    }[] = [];
+
+    let currentBlock: (typeof blocks)[0] | null = null;
+
+    tokens.forEach((tok) => {
+      const spkId = tok.speaker || 'Speaker 1';
+      if (!currentBlock || currentBlock.speakerId !== spkId) {
+        const spkInfo = speakers?.[spkId];
+        const defaultStyle = getSpeakerStyle(spkId);
+        const color = spkInfo?.color || defaultStyle.text;
+        const resolvedStyle = spkInfo?.color
+          ? {
+              bg: `${color}18`,
+              text: color,
+              border: `${color}45`,
+            }
+          : defaultStyle;
+
+        currentBlock = {
+          speakerId: spkId,
+          speakerLabel: spkInfo?.label || spkId,
+          speakerColor: color,
+          speakerStyle: resolvedStyle,
+          startTime: tok.start,
+          tokens: [tok],
+        };
+        blocks.push(currentBlock);
+      } else {
+        currentBlock.tokens.push(tok);
+      }
+    });
+
+    return blocks;
+  }, [tokens, speakers]);
 
   // Smooth auto-scroll that only activates when reading line nears viewport boundary
   useEffect(() => {
@@ -1035,139 +1089,237 @@ export const BookReader: React.FC<BookReaderProps> = ({
               </div>
             </div>
           ) : (
-            <p className="leading-relaxed">
-              {tokens.map((tok, idx) => {
-              const isActive = tok.index === activeIndex;
-              const isPast = tok.end < currentTime;
-              const userHighlight = getHighlightForIndex(tok.index);
-              const lexEntry = getLexiconEntry(tok.word);
-              const showDotted = isLexiconVisible(lexEntry);
-
-              // Automated Speaker Diarization separation
-              const prevTok = idx > 0 ? tokens[idx - 1] : null;
-              const isNewSpeakerTurn = tok.speaker && (!prevTok || prevTok.speaker !== tok.speaker);
-              const speakerInfo = tok.speaker ? (speakers?.[tok.speaker] || { id: tok.speaker, label: tok.speaker, color: '#f59e0b' }) : null;
-              const speakerStyle = tok.speaker ? getSpeakerStyle(tok.speaker) : null;
-              const speakerDisplayLabel = speakerInfo?.label || tok.speaker;
-
-              const wordStyle: React.CSSProperties = isActive
-                ? {
-                    opacity: 1,
-                    backgroundColor: 'var(--highlight-bg, rgba(245, 158, 11, 0.28))',
-                    color: 'var(--highlight-text, #fef3c7)',
-                    fontWeight: 700,
-                    borderRadius: '4px',
-                    padding: '1px 3px',
-                    boxShadow: '0 0 10px rgba(245, 158, 11, 0.45)',
-                    transform: 'scale(1.05)',
-                    display: 'inline-block',
-                    transition: 'all 0.08s ease',
-                  }
-                : userHighlight
-                ? {
-                    backgroundColor: userHighlight.color,
-                    opacity: 0.98,
-                    borderRadius: '4px',
-                    padding: '0 3px',
-                  }
-                : focusBeam
-                ? { opacity: isPast ? 0.98 : focusOpacity }
-                : { opacity: 0.9 };
-
-              return (
-                <React.Fragment key={tok.index}>
-                  {isNewSpeakerTurn && speakerStyle && (
-                    <span className="block mt-4 mb-1.5 first:mt-0 select-none">
-                      <button
-                        type="button"
+            <div className="space-y-3.5 sm:space-y-4">
+              {speakerBlocks.map((block, bIdx) => (
+                <div
+                  key={`speaker-turn-${block.speakerId}-${bIdx}-${block.startTime}`}
+                  className="p-3 sm:p-4 rounded-2xl transition-all duration-200 border border-black/5 dark:border-white/5 bg-black/[0.02] dark:bg-white/[0.02] relative group/block shadow-2xs"
+                  style={{
+                    borderLeftWidth: '4px',
+                    borderLeftColor: block.speakerStyle.text,
+                  }}
+                >
+                  {/* Speaker Turn Header Badge */}
+                  <div className="flex items-center justify-between mb-2 select-none">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenamingSpeakerId(block.speakerId);
+                        setSpeakerRenameValue(block.speakerLabel);
+                        setSelectedSpeakerColor(block.speakerColor);
+                      }}
+                      style={{
+                        backgroundColor: block.speakerStyle.bg,
+                        color: block.speakerStyle.text,
+                        borderColor: block.speakerStyle.border,
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold tracking-wide border shadow-2xs hover:scale-105 active:scale-95 transition-all cursor-pointer focus:outline-none"
+                      title={`Speaker: ${block.speakerLabel} — Tap to rename`}
+                      aria-label={`Speaker: ${block.speakerLabel}. Tap to rename.`}
+                    >
+                      <User className="w-3.5 h-3.5 shrink-0" />
+                      <span className="font-semibold">{block.speakerLabel}</span>
+                      <span
                         onClick={(e) => {
                           e.stopPropagation();
-                          setRenamingSpeakerId(tok.speaker!);
-                          setSpeakerRenameValue(speakerDisplayLabel || tok.speaker!);
+                          onSeek(block.startTime);
                         }}
-                        style={{
-                          backgroundColor: speakerStyle.bg,
-                          color: speakerStyle.text,
-                          borderColor: speakerStyle.border,
-                        }}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold tracking-wide border shadow-2xs hover:scale-105 active:scale-95 transition-all cursor-pointer focus:outline-none"
-                        title={`Speaker: ${speakerDisplayLabel} — Click to rename`}
+                        className="text-[9.5px] opacity-80 font-mono hover:opacity-100 px-1.5 py-0.5 rounded bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 transition ml-0.5 cursor-pointer"
+                        title={`Seek playback to ${formatTime(block.startTime)}`}
                       >
-                        <User className="w-3 h-3" />
-                        <span>{speakerDisplayLabel}</span>
-                        <span className="text-[9px] opacity-75 font-mono">
-                          [{Math.floor(tok.start / 60)}:{(Math.floor(tok.start % 60)).toString().padStart(2, '0')}]
-                        </span>
-                        <Edit3 className="w-2.5 h-2.5 opacity-60 ml-0.5" />
-                      </button>
+                        [{formatTime(block.startTime)}]
+                      </span>
+                      <Edit3 className="w-2.5 h-2.5 opacity-60 ml-0.5 group-hover/block:opacity-100 transition-opacity" />
+                    </button>
+
+                    <span className="text-[10px] font-mono text-stone-400 dark:text-stone-500 hidden xs:inline">
+                      {block.tokens.length} words
                     </span>
-                  )}
-                  <span
-                    ref={isActive ? activeWordRef : null}
-                    data-word-index={tok.index}
-                    onClick={(e) => handleWordClick(tok, e)}
-                    onMouseEnter={(e) => handleWordMouseEnter(tok, e)}
-                    onMouseLeave={handleWordMouseLeave}
-                    style={wordStyle}
-                    className={`inline-block mr-1 cursor-pointer transition-all duration-200 select-text ${
-                      isActive ? 'word-active scale-105 z-10' : 'hover:opacity-100'
-                    } ${
-                      showDotted
-                        ? 'border-b-2 border-dotted border-amber-700/60 font-medium'
-                        : ''
-                    } ${userHighlight ? 'border-b border-black/40 font-medium' : ''}`}
-                    title={
-                      lexEntry
-                        ? `"${lexEntry.term}" — Hover or tap for instant meaning (auto-pauses audio)`
-                        : userHighlight?.note
-                        ? `Note: ${userHighlight.note}`
-                        : `Click '${tok.word}' to seek or look up`
-                    }
-                  >
-                    {tok.word}
-                  </span>
-                </React.Fragment>
-              );
-            })}
-          </p>
-        )}
+                  </div>
+
+                  {/* Words within this Dialogue Turn */}
+                  <p className="leading-relaxed text-[15px] sm:text-base font-book">
+                    {block.tokens.map((tok) => {
+                      const isActive = tok.index === activeIndex;
+                      const isPast = tok.end < currentTime;
+                      const userHighlight = getHighlightForIndex(tok.index);
+                      const lexEntry = getLexiconEntry(tok.word);
+                      const showDotted = isLexiconVisible(lexEntry);
+
+                      const wordStyle: React.CSSProperties = isActive
+                        ? {
+                            opacity: 1,
+                            backgroundColor: 'var(--highlight-bg, rgba(245, 158, 11, 0.28))',
+                            color: 'var(--highlight-text, #fef3c7)',
+                            fontWeight: 700,
+                            borderRadius: '4px',
+                            padding: '1px 3px',
+                            boxShadow: '0 0 10px rgba(245, 158, 11, 0.45)',
+                            transform: 'scale(1.05)',
+                            display: 'inline-block',
+                            transition: 'all 0.08s ease',
+                          }
+                        : userHighlight
+                        ? {
+                            backgroundColor: userHighlight.color,
+                            opacity: 0.98,
+                            borderRadius: '4px',
+                            padding: '0 3px',
+                          }
+                        : focusBeam
+                        ? { opacity: isPast ? 0.98 : focusOpacity }
+                        : { opacity: 0.9 };
+
+                      return (
+                        <span
+                          key={tok.index}
+                          ref={isActive ? activeWordRef : null}
+                          data-word-index={tok.index}
+                          onClick={(e) => handleWordClick(tok, e)}
+                          onMouseEnter={(e) => handleWordMouseEnter(tok, e)}
+                          onMouseLeave={handleWordMouseLeave}
+                          style={wordStyle}
+                          className={`inline-block mr-1 cursor-pointer transition-all duration-200 select-text ${
+                            isActive ? 'word-active scale-105 z-10' : 'hover:opacity-100'
+                          } ${
+                            showDotted
+                              ? 'border-b-2 border-dotted border-amber-700/60 font-medium'
+                              : ''
+                          } ${userHighlight ? 'border-b border-black/40 font-medium' : ''}`}
+                          title={
+                            lexEntry
+                              ? `"${lexEntry.term}" — Hover or tap for instant meaning (auto-pauses audio)`
+                              : userHighlight?.note
+                              ? `Note: ${userHighlight.note}`
+                              : `Click '${tok.word}' to seek or look up`
+                          }
+                        >
+                          {tok.word}
+                        </span>
+                      );
+                    })}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Inline Speaker Renaming Dialog */}
+        {/* Interactive Speaker Renaming Dialog */}
         {renamingSpeakerId && (
-          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150 select-none">
-            <div className="w-full max-w-xs bg-stone-900 border border-amber-500/40 rounded-3xl p-5 shadow-2xl space-y-3.5 text-stone-100">
-              <div className="flex items-center justify-between text-xs font-semibold text-amber-300">
-                <span className="flex items-center gap-1.5">
-                  <User className="w-4 h-4 text-amber-400" />
-                  <span>Rename Speaker</span>
-                </span>
+          <div
+            onClick={() => setRenamingSpeakerId(null)}
+            className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-150 select-none"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm bg-stone-900 border border-amber-500/40 rounded-3xl p-5 shadow-2xl space-y-4 text-stone-100 animate-in zoom-in-95 duration-150"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-black font-bold"
+                    style={{ backgroundColor: selectedSpeakerColor || '#f59e0b' }}
+                  >
+                    <User className="w-4 h-4 text-black" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-amber-300 uppercase tracking-wider font-mono">
+                      Rename Speaker
+                    </h3>
+                    <p className="text-[10px] text-stone-400 font-sans">
+                      Updates all dialogue turns for this voice
+                    </p>
+                  </div>
+                </div>
                 <button
+                  type="button"
                   onClick={() => setRenamingSpeakerId(null)}
-                  className="p-1 text-stone-400 hover:text-white rounded-lg hover:bg-white/10"
+                  className="p-1.5 text-stone-400 hover:text-white rounded-full hover:bg-white/10 transition"
+                  aria-label="Close dialog"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <input
-                type="text"
-                value={speakerRenameValue}
-                onChange={(e) => setSpeakerRenameValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && speakerRenameValue.trim()) {
-                    onUpdateSpeakerName?.(renamingSpeakerId, speakerRenameValue.trim());
-                    setRenamingSpeakerId(null);
-                  }
-                }}
-                placeholder="Speaker Name (e.g. Elena, Host)"
-                autoFocus
-                className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-white/20 text-xs text-stone-100 focus:outline-none focus:border-amber-400"
-              />
-              <div className="flex justify-end gap-2 pt-1">
+
+              {/* Text Input */}
+              <div className="space-y-1.5">
+                <label className="text-[10.5px] font-mono text-stone-300">Speaker Name</label>
+                <input
+                  type="text"
+                  value={speakerRenameValue}
+                  onChange={(e) => setSpeakerRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && speakerRenameValue.trim()) {
+                      onUpdateSpeakerName?.(renamingSpeakerId, speakerRenameValue.trim(), selectedSpeakerColor);
+                      setRenamingSpeakerId(null);
+                    }
+                  }}
+                  placeholder="e.g. Elena, Host, Professor"
+                  autoFocus
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-black/60 border border-white/20 text-sm text-stone-100 focus:outline-none focus:border-amber-400 font-medium"
+                />
+              </div>
+
+              {/* Quick Preset Suggestions */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-mono text-stone-400 uppercase tracking-wider">
+                  Quick Suggestions
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {['Host', 'Elena', 'Professor', 'Interviewer', 'Guest', 'Narrator'].map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => setSpeakerRenameValue(name)}
+                      className={`px-2.5 py-1 rounded-full text-xs transition border ${
+                        speakerRenameValue === name
+                          ? 'bg-amber-500 text-black font-bold border-amber-400 shadow-sm'
+                          : 'bg-white/5 hover:bg-white/10 text-stone-300 border-white/10 hover:text-white'
+                      }`}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Speaker Color Theme Selector */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-mono text-stone-400 uppercase tracking-wider">
+                  Speaker Theme Color
+                </span>
+                <div className="flex items-center gap-2">
+                  {[
+                    { color: '#f59e0b', name: 'Amber' },
+                    { color: '#06b6d4', name: 'Cyan' },
+                    { color: '#a855f7', name: 'Violet' },
+                    { color: '#10b981', name: 'Emerald' },
+                    { color: '#f43f5e', name: 'Rose' },
+                  ].map((c) => (
+                    <button
+                      key={c.color}
+                      type="button"
+                      onClick={() => setSelectedSpeakerColor(c.color)}
+                      style={{ backgroundColor: c.color }}
+                      className={`w-7 h-7 rounded-full transition-transform flex items-center justify-center ${
+                        selectedSpeakerColor === c.color ? 'scale-110 ring-2 ring-white shadow-lg' : 'opacity-80 hover:opacity-100 hover:scale-105'
+                      }`}
+                      title={c.name}
+                    >
+                      {selectedSpeakerColor === c.color && <Check className="w-3.5 h-3.5 text-black stroke-[3]" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-2 pt-2 border-t border-white/10">
                 <button
                   type="button"
                   onClick={() => setRenamingSpeakerId(null)}
-                  className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs text-stone-300"
+                  className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-xs font-medium text-stone-300 transition"
                 >
                   Cancel
                 </button>
@@ -1175,13 +1327,14 @@ export const BookReader: React.FC<BookReaderProps> = ({
                   type="button"
                   onClick={() => {
                     if (speakerRenameValue.trim()) {
-                      onUpdateSpeakerName?.(renamingSpeakerId, speakerRenameValue.trim());
+                      onUpdateSpeakerName?.(renamingSpeakerId, speakerRenameValue.trim(), selectedSpeakerColor);
                       setRenamingSpeakerId(null);
                     }
                   }}
-                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs"
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs transition active:scale-95 shadow-md flex items-center gap-1.5"
                 >
-                  Save
+                  <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>Save</span>
                 </button>
               </div>
             </div>
