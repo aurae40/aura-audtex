@@ -9,43 +9,63 @@ import {
   listAllRecordingSessions,
 } from './sessionLibraryService';
 
-/**
- * Converts a Blob to a Base64 string for portable archive packaging.
- */
+function uint8ToBase64(bytes: Uint8Array): string {
+  const CHUNK = 0x8000; // 32 KB chunks — immune to RangeError stack overflow on large audio archives
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    parts.push(
+      String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[])
+    );
+  }
+  return btoa(parts.join(''));
+}
+
+function base64ToUint8(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
       const res = reader.result as string;
-      // Extract data after comma (e.g. data:audio/mp3;base64,....)
       const base64Index = res.indexOf('base64,');
-      if (base64Index !== -1) {
-        resolve(res.substring(base64Index + 7));
-      } else {
-        resolve(res);
-      }
+      resolve(base64Index !== -1 ? res.substring(base64Index + 7) : res);
     };
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
 }
 
-/**
- * Converts a Base64 string back into a Blob.
- */
 function base64ToBlob(base64: string, mimeType: string = 'audio/mpeg'): Blob {
-  const binaryStr = atob(base64);
-  const len = binaryStr.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryStr.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: mimeType });
+  const bytes = base64ToUint8(base64);
+  return new Blob([bytes as unknown as BlobPart], { type: mimeType });
 }
 
-/**
- * Derives an AES-GCM CryptoKey from a user password using PBKDF2 with SHA-256.
- */
+function triggerCrossPlatformDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Delay revoke so iOS Safari finishes initiating the download stream
+  window.setTimeout(() => {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  }, 1500);
+}
+
 async function deriveEncryptionKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
@@ -56,23 +76,22 @@ async function deriveEncryptionKey(password: string, salt: Uint8Array): Promise<
     ['deriveKey']
   );
 
-    return await crypto.subtle.deriveKey(
-      {
-        name: 'PBKDF2',
-        salt: salt as any,
-        iterations: 100000,
-        hash: 'SHA-256',
-      },
-      keyMaterial,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt', 'decrypt']
-    );
+  return await crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt as unknown as BufferSource,
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
 }
 
 /**
- * Exports a single RecordingSession into a portable `.aura` session archive file.
- * If a password is provided, encrypts the entire archive using AES-256-GCM.
+ * Exports a single RecordingSession into a portable `.aura` (or AES-256-GCM `.auraenc`) archive.
  */
 export async function exportSessionArchive(
   sessionId: string,
@@ -105,6 +124,7 @@ export async function exportSessionArchive(
       lastPlayedAt: session.lastPlayedAt,
       lastPlaybackPositionSec: session.lastPlaybackPositionSec,
       tokens: session.tokens || [],
+      speakers: session.speakers,
       marginalia: session.marginalia || [],
       dossier: session.dossier,
       lexicon: session.lexicon || {},
@@ -122,7 +142,6 @@ export async function exportSessionArchive(
   let fileExtension = 'aura';
 
   if (options?.password && options.password.trim().length > 0) {
-    // Encrypted export
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const key = await deriveEncryptionKey(options.password.trim(), salt);
@@ -131,15 +150,15 @@ export async function exportSessionArchive(
     const cipherBuffer = await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv },
       key,
-      plainBytes as any
+      plainBytes as unknown as BufferSource
     );
 
     const envelope: AuraEncryptedArchiveEnvelope = {
       format: 'aura_encrypted_session_archive_v1',
       exportedAt: new Date().toISOString(),
-      salt: btoa(String.fromCharCode(...salt)),
-      iv: btoa(String.fromCharCode(...iv)),
-      ciphertext: btoa(String.fromCharCode(...new Uint8Array(cipherBuffer))),
+      salt: uint8ToBase64(salt),
+      iv: uint8ToBase64(iv),
+      ciphertext: uint8ToBase64(new Uint8Array(cipherBuffer)),
     };
 
     fileContent = JSON.stringify(envelope, null, 2);
@@ -148,22 +167,13 @@ export async function exportSessionArchive(
     fileContent = JSON.stringify(archive, null, 2);
   }
 
-  // Trigger browser download
   const blob = new Blob([fileContent], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
   const safeTitle = (session.title || 'AuRA_Session').replace(/[^a-zA-Z0-9_-]/g, '_');
-  a.href = url;
-  a.download = `${safeTitle}_${session.id}.${fileExtension}`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  triggerCrossPlatformDownload(blob, `${safeTitle}_${session.id}.${fileExtension}`);
 }
 
 /**
- * Imports a portable `.aura` (or `.auraenc`) session archive into the offline library.
- * Fully reconstructs audio Blob, tokens, highlights, and marginalia.
+ * Imports a portable `.aura` or `.auraenc` archive back into the offline library.
  */
 export async function importSessionArchive(
   file: File,
@@ -181,20 +191,22 @@ export async function importSessionArchive(
 
   if (parsed.format === 'aura_encrypted_session_archive_v1') {
     if (!password || password.trim().length === 0) {
-      throw new Error('PASSWORD_REQUIRED: This .aura archive is encrypted. Please enter the password.');
+      throw new Error(
+        'PASSWORD_REQUIRED: This .aura archive is encrypted. Please enter the password.'
+      );
     }
 
     const envelope = parsed as AuraEncryptedArchiveEnvelope;
-    const salt = new Uint8Array(atob(envelope.salt).split('').map((c) => c.charCodeAt(0)));
-    const iv = new Uint8Array(atob(envelope.iv).split('').map((c) => c.charCodeAt(0)));
-    const cipherBytes = new Uint8Array(atob(envelope.ciphertext).split('').map((c) => c.charCodeAt(0)));
+    const salt = base64ToUint8(envelope.salt);
+    const iv = base64ToUint8(envelope.iv);
+    const cipherBytes = base64ToUint8(envelope.ciphertext);
 
     const key = await deriveEncryptionKey(password.trim(), salt);
     try {
       const decryptedBuffer = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv },
+        { name: 'AES-GCM', iv: iv as unknown as BufferSource },
         key,
-        cipherBytes as any
+        cipherBytes as unknown as BufferSource
       );
       const decText = new TextDecoder().decode(decryptedBuffer);
       archive = JSON.parse(decText);
@@ -204,7 +216,7 @@ export async function importSessionArchive(
   } else if (parsed.format === 'aura_session_archive_v1') {
     archive = parsed as AuraSessionArchive;
   } else {
-    throw new Error('Unrecognized archive format. Expected .aura file.');
+    throw new Error('Unrecognized archive format. Expected .aura or .auraenc file.');
   }
 
   let audioBlob: Blob | undefined;
@@ -226,6 +238,7 @@ export async function importSessionArchive(
     lastPlayedAt: new Date().toISOString(),
     lastPlaybackPositionSec: s.lastPlaybackPositionSec || 0,
     tokens: s.tokens || [],
+    speakers: s.speakers,
     marginalia: s.marginalia || [],
     dossier: s.dossier,
     lexicon: s.lexicon || {},
@@ -274,6 +287,7 @@ export async function exportFullLibraryBackup(): Promise<void> {
         lastPlayedAt: full.lastPlayedAt,
         lastPlaybackPositionSec: full.lastPlaybackPositionSec,
         tokens: full.tokens || [],
+        speakers: full.speakers,
         marginalia: full.marginalia || [],
         dossier: full.dossier,
         lexicon: full.lexicon || {},
@@ -296,13 +310,6 @@ export async function exportFullLibraryBackup(): Promise<void> {
   };
 
   const blob = new Blob([JSON.stringify(backupPayload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
   const dateStr = new Date().toISOString().slice(0, 10);
-  a.href = url;
-  a.download = `AuRA_Library_Full_Backup_${dateStr}.aurabackup`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  triggerCrossPlatformDownload(blob, `AuRA_Library_Full_Backup_${dateStr}.aurabackup`);
 }

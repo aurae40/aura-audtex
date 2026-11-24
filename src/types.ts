@@ -208,6 +208,7 @@ export interface AuraSessionArchive {
     lastPlayedAt?: string;
     lastPlaybackPositionSec?: number;
     tokens: WordToken[];
+    speakers?: Record<string, SpeakerInfo>;
     marginalia: Marginalia[];
     dossier: MilestoneDossier;
     lexicon: Record<string, LexiconEntry>;
