@@ -11,6 +11,9 @@ const backendProxy = {
   '/transcribe-url': 'http://127.0.0.1:8000',
   '/audio': 'http://127.0.0.1:8000',
   '/models': 'http://127.0.0.1:8000',
+  '/llm-status': 'http://127.0.0.1:8000',
+  '/analyze': 'http://127.0.0.1:8000',
+  '/ask': 'http://127.0.0.1:8000',
 };
 
 export default defineConfig({
