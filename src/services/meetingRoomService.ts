@@ -19,10 +19,19 @@ export interface MeetingPeer {
   isSpeaking: boolean;
 }
 
+export interface MeetingRoomPublicInfo {
+  roomId: string;
+  exists: boolean;
+  isLocked: boolean;
+  participantCount: number;
+  isRecording: boolean;
+}
+
 export interface MeetingRoomState {
   isConnected: boolean;
   isConnecting: boolean;
   roomId: string;
+  isLocked: boolean;
   selfPeerId: string;
   selfName: string;
   isHost: boolean;
@@ -38,6 +47,25 @@ export interface MeetingRoomState {
   statusBanner: string | null;
 }
 
+export class MeetingAuthError extends Error {
+  public readonly code: string;
+  public readonly attemptsRemaining?: number;
+  public readonly retryAfterSec?: number;
+
+  constructor(
+    message: string,
+    code: string = 'AUTH_ERROR',
+    attemptsRemaining?: number,
+    retryAfterSec?: number
+  ) {
+    super(message);
+    this.name = 'MeetingAuthError';
+    this.code = code;
+    this.attemptsRemaining = attemptsRemaining;
+    this.retryAfterSec = retryAfterSec;
+  }
+}
+
 export type MeetingStateListener = (state: MeetingRoomState) => void;
 export type MeetingTokenListener = (tokens: WordToken[]) => void;
 
@@ -50,10 +78,25 @@ const STUN_CONFIG: RTCConfiguration = {
 
 /** Generates a clean 4-digit room code like AURA-4829 */
 export function generateRoomCode(): string {
-  const digits = Math.floor(1000 + Math.random() * 9000);
-  return `AURA-${digits}`;
+  const arr = new Uint32Array(1);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(arr);
+    return `AURA-${1000 + (arr[0] % 9000)}`;
+  }
+  return `AURA-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
+/** Cryptographically random 4-digit numeric PIN for quick private room locking */
+export function generateRoomPasscode(): string {
+  const arr = new Uint32Array(1);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(arr);
+    return String(1000 + (arr[0] % 9000));
+  }
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+/** Builds a clean invite URL containing ONLY the room code — NEVER embeds the passcode */
 export function buildRoomInviteUrl(roomId: string): string {
   if (typeof window === 'undefined') return '';
   const url = new URL(window.location.href);
@@ -63,8 +106,33 @@ export function buildRoomInviteUrl(roomId: string): string {
 }
 
 /**
- * Plays a gentle, unmistakable 2-tone Web Audio disclosure chime when live recording turns on/off.
+ * Probes whether a room currently exists and whether it requires a passcode.
  */
+export async function probeMeetingRoom(roomId: string): Promise<MeetingRoomPublicInfo | null> {
+  const clean = roomId.trim().toUpperCase();
+  if (clean.length < 3) return null;
+
+  try {
+    const health = await checkLocalServerHealth();
+    if (!health.online || !health.urlChecked) return null;
+    const base = health.urlChecked.replace(/\/+$/, '');
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 2500);
+    try {
+      const res = await fetch(`${base}/meeting/${encodeURIComponent(clean)}/info`, {
+        signal: controller.signal,
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as MeetingRoomPublicInfo;
+    } finally {
+      window.clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
+}
+
 export function playRecordingDisclosureChime(isStarting: boolean): void {
   try {
     const AudioCtx =
@@ -78,7 +146,7 @@ export function playRecordingDisclosureChime(isStarting: boolean): void {
     }
 
     const now = ctx.currentTime;
-    const freqs = isStarting ? [587.33, 880] : [659.25, 440]; // D5->A5 (ON), E5->A4 (OFF)
+    const freqs = isStarting ? [587.33, 880] : [659.25, 440];
 
     freqs.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
@@ -96,13 +164,10 @@ export function playRecordingDisclosureChime(isStarting: boolean): void {
 
     window.setTimeout(() => ctx.close().catch(() => {}), 600);
   } catch {
-    // Chime is best-effort
+    // Best-effort chime
   }
 }
 
-/**
- * Fires a native browser/OS notification announcing that live audio recording is active.
- */
 export async function sendLiveRecordingOSNotification(title: string, body: string): Promise<void> {
   if (typeof window === 'undefined' || !('Notification' in window)) return;
   try {
@@ -118,13 +183,10 @@ export async function sendLiveRecordingOSNotification(title: string, body: strin
       });
     }
   } catch {
-    // Some mobile Safari contexts disallow Notification constructor outside SW
+    // Some mobile contexts restrict Notification outside Service Worker
   }
 }
 
-/**
- * Downsamples Float32 PCM chunks to a compact 16 kHz Mono WAV for /transcribe-chunk.
- */
 function encodeMixedPcmTo16kWav(chunks: Float32Array[], sourceRate: number): Blob {
   let totalInput = 0;
   for (const c of chunks) totalInput += c.length;
@@ -183,7 +245,6 @@ export class AudioMeetingRoomClient {
   private remoteAudioElements = new Map<string, HTMLAudioElement>();
   private remoteMixerNodes = new Map<string, MediaStreamAudioSourceNode>();
 
-  // Multi-speaker Web Audio mixer & recorder
   private audioCtx: AudioContext | null = null;
   private mixerDest: MediaStreamAudioDestinationNode | null = null;
   private localAnalyser: AnalyserNode | null = null;
@@ -193,15 +254,14 @@ export class AudioMeetingRoomClient {
   private selectedMime = '';
   private recordedBlobs: Blob[] = [];
 
-  // Rolling Whisper chunk state
   private pcmChunks: Float32Array[] = [];
   private pcmSamples = 0;
   private pcmChunkStartSec = 0;
   private chunkHasVoice = false;
   private chunkInFlight = false;
 
-  // Room & Recording state
   private roomId = '';
+  private isLocked = false;
   private selfPeerId = `peer_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
   private selfName = 'Host';
   private isHost = false;
@@ -244,14 +304,16 @@ export class AudioMeetingRoomClient {
       this.participants.find((p) => p.isSpeaking)?.name ||
       (this.isSpeaking ? this.selfName : this.participants[0]?.name || this.selfName);
 
-    const recSec = this.isRecording && this.recordingStartedMs > 0
-      ? Math.max(0, (Date.now() - this.recordingStartedMs) / 1000)
-      : 0;
+    const recSec =
+      this.isRecording && this.recordingStartedMs > 0
+        ? Math.max(0, (Date.now() - this.recordingStartedMs) / 1000)
+        : 0;
 
     return {
       isConnected: this.isConnected,
       isConnecting: this.isConnecting,
       roomId: this.roomId,
+      isLocked: this.isLocked,
       selfPeerId: this.selfPeerId,
       selfName: this.selfName,
       isHost: this.isHost,
@@ -281,19 +343,20 @@ export class AudioMeetingRoomClient {
       const s = Math.floor(state.recordingDurationSec % 60);
       document.title = `🔴 REC ${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')} • AuRA Live`;
     } else if (state.isConnected) {
-      document.title = `🎙️ ${state.roomId} • AuRA Audio Room`;
+      document.title = `${state.isLocked ? '🔒' : '🎙️'} ${state.roomId} • AuRA Audio Room`;
     } else {
       document.title = this.originalDocTitle;
     }
   }
 
   /**
-   * Joins or creates an audio-only meeting room (video is strictly disabled).
-   * Automatically activates live recording + notifications if autoRecord is true.
+   * Joins or creates an audio-only meeting room with zero-URL-leakage first-frame authentication.
+   * Rejects with MeetingAuthError if a locked room's passcode is missing, wrong, or rate-limited.
    */
   public async joinRoom(params: {
     roomId: string;
     displayName: string;
+    passcode?: string;
     autoRecord?: boolean;
   }): Promise<void> {
     if (this.isConnected || this.isConnecting) return;
@@ -303,14 +366,35 @@ export class AudioMeetingRoomClient {
       throw new Error(env.userMessage || 'HTTPS is required to join an audio meeting room.');
     }
 
+    const cleanPasscode = (params.passcode || '').trim();
+    if (cleanPasscode && (cleanPasscode.length < 4 || cleanPasscode.length > 16)) {
+      throw new MeetingAuthError(
+        'Passcode must be between 4 and 16 characters.',
+        'INVALID_PASSCODE_FORMAT'
+      );
+    }
+
     this.isConnecting = true;
     this.roomId = params.roomId.trim().toUpperCase() || generateRoomCode();
     this.selfName = params.displayName.trim() || 'Participant';
-    this.statusBanner = 'Connecting to audio meeting server...';
+    this.statusBanner = 'Authenticating & connecting to audio room...';
     this.emitState();
 
     try {
-      // 1. Acquire audio-only microphone (graceful fallback for Bluetooth/AirPods)
+      // 1. Locate signaling server first (fails fast if offline before touching microphone)
+      const health = await checkLocalServerHealth();
+      if (!health.online || !health.urlChecked) {
+        throw new Error(
+          'Audio Meeting Server is offline. Launch start_aura_https.bat (or python backend/server.py) so participants can connect.'
+        );
+      }
+
+      this.serverHttpBase = health.urlChecked.replace(/\/+$/, '');
+      const wsBase = this.serverHttpBase
+        .replace(/^https:\/\//i, 'wss://')
+        .replace(/^http:\/\//i, 'ws://');
+
+      // 2. Acquire audio-only microphone (video strictly false)
       try {
         this.localStream = await navigator.mediaDevices.getUserMedia({
           video: false,
@@ -324,7 +408,96 @@ export class AudioMeetingRoomClient {
         this.localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
       }
 
-      // 2. Keep device awake while inside the audio room
+      // 3. Connect WebSocket & perform 1-frame authenticated handshake (no PIN in URL!)
+      const wsUrl = `${wsBase}/ws/meeting/${encodeURIComponent(this.roomId)}`;
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const socket = new WebSocket(wsUrl);
+        this.ws = socket;
+
+        const connectTimeout = window.setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            reject(new Error('Timed out authenticating with Audio Meeting Room.'));
+          }
+        }, 8000);
+
+        socket.onopen = () => {
+          // Send credentials strictly inside the encrypted WebSocket JSON payload
+          const authPayload: Record<string, any> = {
+            type: 'join',
+            peerId: this.selfPeerId,
+            name: this.selfName,
+          };
+          if (cleanPasscode) authPayload.passcode = cleanPasscode;
+          const serverToken = getStoredServerToken();
+          if (serverToken) authPayload.token = serverToken;
+
+          socket.send(JSON.stringify(authPayload));
+        };
+
+        socket.onerror = () => {
+          if (!settled) {
+            settled = true;
+            window.clearTimeout(connectTimeout);
+            reject(new Error('Could not connect to Audio Meeting WebSocket server.'));
+          }
+        };
+
+        socket.onmessage = (event) => {
+          let parsed: any;
+          try {
+            parsed = JSON.parse(event.data);
+          } catch {
+            return;
+          }
+
+          if (!settled) {
+            if (parsed.type === 'auth-error') {
+              settled = true;
+              window.clearTimeout(connectTimeout);
+              reject(
+                new MeetingAuthError(
+                  parsed.message || 'Room authentication failed.',
+                  parsed.code || 'AUTH_ERROR',
+                  parsed.attemptsRemaining,
+                  parsed.retryAfterSec
+                )
+              );
+              return;
+            }
+            if (parsed.type === 'room-joined') {
+              settled = true;
+              window.clearTimeout(connectTimeout);
+              this.isConnected = true;
+              this.isConnecting = false;
+              this.handleSignalMessage(parsed).catch(() => {});
+              resolve();
+              return;
+            }
+          }
+
+          this.handleSignalMessage(parsed).catch((e) =>
+            console.warn('[AuRA Room] Signal handling note:', e)
+          );
+        };
+
+        socket.onclose = (ev) => {
+          if (!settled) {
+            settled = true;
+            window.clearTimeout(connectTimeout);
+            reject(new Error(`Meeting connection closed before admission (code ${ev.code}).`));
+            return;
+          }
+          if (this.isConnected) {
+            this.statusBanner = 'Audio room connection closed.';
+            this.isConnected = false;
+            this.emitState();
+          }
+        };
+      });
+
+      // 4. Keep screen awake once admitted
       try {
         if ('wakeLock' in navigator && (navigator as any).wakeLock?.request) {
           this.wakeLock = await (navigator as any).wakeLock.request('screen');
@@ -333,20 +506,7 @@ export class AudioMeetingRoomClient {
         // optional
       }
 
-      // 3. Locate signaling server (uses same HTTPS/LAN FastAPI server)
-      const health = await checkLocalServerHealth();
-      if (!health.online || !health.urlChecked) {
-        throw new Error(
-          'Audio Meeting Server is offline. Launch start_aura_https.bat (or python backend/server.py) so participants can connect.'
-        );
-      }
-
-      this.serverHttpBase = health.urlChecked.replace(/\/+$/, '');
-      const wsBase = this.serverHttpBase
-        .replace(/^https:\/\//i, 'wss://')
-        .replace(/^http:\/\//i, 'ws://');
-
-      // 4. Setup Web Audio Multi-Speaker Mixer & Local Voice Activity Meter
+      // 5. Setup Web Audio Multi-Speaker Mixer & Local Voice Activity Detector
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       this.audioCtx = new AudioCtx();
       const ctxState = this.audioCtx.state as string;
@@ -361,7 +521,6 @@ export class AudioMeetingRoomClient {
       localSource.connect(this.localAnalyser);
       localSource.connect(this.mixerDest);
 
-      // Rolling PCM tap on the mixed room stream (records local + all remote peers together)
       if (typeof this.audioCtx.createScriptProcessor === 'function') {
         const sampleRate = this.audioCtx.sampleRate || 48000;
         const chunkSamplesTarget = sampleRate * 6;
@@ -403,53 +562,7 @@ export class AudioMeetingRoomClient {
         this.muteSinkNode = zeroGain;
       }
 
-      // 5. Connect WebSocket Signaling Channel
-      const qs = new URLSearchParams({
-        peer_id: this.selfPeerId,
-        name: this.selfName,
-      });
-      const token = getStoredServerToken();
-      if (token) qs.set('token', token);
-
-      const wsUrl = `${wsBase}/ws/meeting/${encodeURIComponent(this.roomId)}?${qs.toString()}`;
-      await new Promise<void>((resolve, reject) => {
-        const socket = new WebSocket(wsUrl);
-        this.ws = socket;
-
-        const connectTimeout = window.setTimeout(() => {
-          reject(new Error('Timed out connecting to Audio Meeting Room WebSocket.'));
-        }, 8000);
-
-        socket.onopen = () => {
-          window.clearTimeout(connectTimeout);
-          this.isConnected = true;
-          this.isConnecting = false;
-          this.statusBanner = `Connected to Audio Room ${this.roomId}`;
-          this.emitState();
-          resolve();
-        };
-
-        socket.onerror = () => {
-          window.clearTimeout(connectTimeout);
-          reject(new Error('Could not establish audio meeting WebSocket connection.'));
-        };
-
-        socket.onmessage = (event) => {
-          this.handleSignalMessage(event.data).catch((e) =>
-            console.warn('[AuRA Room] Signal handling note:', e)
-          );
-        };
-
-        socket.onclose = () => {
-          if (this.isConnected) {
-            this.statusBanner = 'Audio room connection closed.';
-            this.isConnected = false;
-            this.emitState();
-          }
-        };
-      });
-
-      // 6. Start Local Speaking Activity Detector & Live Clock
+      // 6. Start Speaking Detector & Live Clock
       const levelBuf = new Float32Array(this.localAnalyser.fftSize);
       this.meterTimer = window.setInterval(() => {
         if (!this.localAnalyser || !this.isConnected) return;
@@ -485,7 +598,7 @@ export class AudioMeetingRoomClient {
         if (this.isRecording) this.emitState();
       }, 1000);
 
-      // 7. Auto-start live recording & trigger live recording disclosure immediately if requested
+      // 7. Auto-start live recording & disclosure alerts
       if (params.autoRecord !== false) {
         await this.startLiveRecording();
       }
@@ -496,20 +609,29 @@ export class AudioMeetingRoomClient {
     }
   }
 
+  /**
+   * Host-only live room lock control: pass a 4-16 char string to lock/change PIN, or null/'' to unlock.
+   */
+  public setRoomPasscode(passcode: string | null): void {
+    if (!this.isConnected || !this.isHost) return;
+    this.sendSignal({
+      type: 'set-passcode',
+      passcode: passcode ? passcode.trim() : null,
+    });
+  }
+
   private sendSignal(payload: Record<string, any>): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(payload));
     }
   }
 
-  private async handleSignalMessage(raw: string): Promise<void> {
-    const msg = JSON.parse(raw);
-
+  private async handleSignalMessage(msg: any): Promise<void> {
     if (msg.type === 'room-joined') {
       this.isHost = Boolean(msg.self?.isHost);
+      this.isLocked = Boolean(msg.isLocked);
       this.participants = Array.isArray(msg.participants) ? msg.participants : [];
 
-      // If room is ALREADY recording when this user joins, immediately notify them!
       if (msg.recording?.isRecording && !this.isRecording) {
         this.isRecording = true;
         this.recordingHostName = msg.recording.hostName || 'Host';
@@ -521,6 +643,21 @@ export class AudioMeetingRoomClient {
           `You joined ${this.roomId}. Live audio recording and transcription are active.`
         );
       }
+      this.emitState();
+      return;
+    }
+
+    if (msg.type === 'room-lock-updated') {
+      this.isLocked = Boolean(msg.isLocked);
+      this.statusBanner = this.isLocked
+        ? `Room locked with passcode by ${msg.updatedBy || 'Host'}`
+        : `Room unlocked by ${msg.updatedBy || 'Host'}`;
+      this.emitState();
+      return;
+    }
+
+    if (msg.type === 'room-error') {
+      this.statusBanner = msg.message || 'Room action rejected.';
       this.emitState();
       return;
     }
@@ -537,8 +674,10 @@ export class AudioMeetingRoomClient {
 
     if (msg.type === 'peer-left') {
       this.participants = Array.isArray(msg.participants) ? msg.participants : this.participants;
-      const goneId: string = msg.peerId;
-      this.cleanupPeer(goneId);
+      // Check if we were promoted to Host after previous Host disconnected
+      const selfEntry = this.participants.find((p) => p.peerId === this.selfPeerId);
+      if (selfEntry) this.isHost = Boolean(selfEntry.isHost);
+      this.cleanupPeer(msg.peerId);
       this.emitState();
       return;
     }
@@ -611,7 +750,6 @@ export class AudioMeetingRoomClient {
     const pc = new RTCPeerConnection(STUN_CONFIG);
     this.peerConnections.set(remotePeerId, pc);
 
-    // Attach audio-only local tracks
     if (this.localStream) {
       this.localStream.getAudioTracks().forEach((track) => {
         pc.addTrack(track, this.localStream!);
@@ -631,7 +769,6 @@ export class AudioMeetingRoomClient {
     pc.ontrack = (event) => {
       const remoteStream = event.streams[0] || new MediaStream([event.track]);
 
-      // 1. Play remote speaker's voice through device speakers/headphones
       let audioEl = this.remoteAudioElements.get(remotePeerId);
       if (!audioEl) {
         audioEl = document.createElement('audio');
@@ -642,14 +779,13 @@ export class AudioMeetingRoomClient {
         this.remoteAudioElements.set(remotePeerId, audioEl);
       }
 
-      // 2. Patch remote voice into the multi-speaker recording & Whisper mixer
       if (this.audioCtx && this.mixerDest && !this.remoteMixerNodes.has(remotePeerId)) {
         try {
           const remoteNode = this.audioCtx.createMediaStreamSource(remoteStream);
           remoteNode.connect(this.mixerDest);
           this.remoteMixerNodes.set(remotePeerId, remoteNode);
         } catch {
-          // ignore if browser restricts MediaStreamSource on remote track
+          // ignore
         }
       }
     };
@@ -661,11 +797,7 @@ export class AudioMeetingRoomClient {
     const pc = this.createPeerConnection(remotePeerId);
     const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
     await pc.setLocalDescription(offer);
-    this.sendSignal({
-      type: 'offer',
-      targetPeerId: remotePeerId,
-      payload: offer,
-    });
+    this.sendSignal({ type: 'offer', targetPeerId: remotePeerId, payload: offer });
   }
 
   private async handleIncomingOffer(
@@ -676,11 +808,7 @@ export class AudioMeetingRoomClient {
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    this.sendSignal({
-      type: 'answer',
-      targetPeerId: fromPeerId,
-      payload: answer,
-    });
+    this.sendSignal({ type: 'answer', targetPeerId: fromPeerId, payload: answer });
   }
 
   private cleanupPeer(peerId: string): void {
@@ -726,10 +854,6 @@ export class AudioMeetingRoomClient {
     return this.isMuted;
   }
 
-  /**
-   * Starts multi-speaker mixed audio recording + live transcription and immediately
-   * broadcasts the mandatory live-recording alert to every participant and OS notification tray.
-   */
   public async startLiveRecording(): Promise<void> {
     if (this.isRecording) return;
 
@@ -742,7 +866,6 @@ export class AudioMeetingRoomClient {
     this.chunkHasVoice = false;
     this.statusBanner = `LIVE RECORDING ON — ${this.roomId}`;
 
-    // Start MediaRecorder on the mixed all-participants stream (falls back to localStream if needed)
     const recordStream = this.mixerDest?.stream || this.localStream;
     if (recordStream && typeof MediaRecorder !== 'undefined') {
       try {
@@ -760,7 +883,6 @@ export class AudioMeetingRoomClient {
       }
     }
 
-    // 4-Signal Live Recording Notification
     window.addEventListener('beforeunload', this.handleBeforeUnload);
     playRecordingDisclosureChime(true);
     sendLiveRecordingOSNotification(
@@ -835,10 +957,6 @@ export class AudioMeetingRoomClient {
     }
   }
 
-  /**
-   * Ends the meeting, stops all WebRTC audio streams, clears notifications,
-   * and returns the complete recorded audio + speaker-attributed transcript for AuRA's Codex.
-   */
   public async leaveRoom(): Promise<{
     roomId: string;
     audioBlob: Blob | null;
@@ -852,7 +970,6 @@ export class AudioMeetingRoomClient {
         ? Math.max(1, (Date.now() - this.recordingStartedMs) / 1000)
         : 1;
 
-    // Flush final active chunk before tearing down
     if (this.isRecording && this.pcmSamples > 0 && this.audioCtx && !this.chunkInFlight) {
       await this.flushMeetingWhisperChunk(this.audioCtx.sampleRate || 48000);
     }
@@ -952,6 +1069,7 @@ export class AudioMeetingRoomClient {
     this.isConnected = false;
     this.isConnecting = false;
     this.isRecording = false;
+    this.isLocked = false;
     this.recordingStartedMs = 0;
     this.participants = [];
     this.localAudioLevel = 0;

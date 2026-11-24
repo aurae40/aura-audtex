@@ -13,6 +13,7 @@ import tempfile
 import asyncio
 import subprocess
 import json
+import hmac
 from typing import List, Dict, Any, Optional
 
 from fastapi import (
@@ -1068,33 +1069,101 @@ async def transcribe_live_chunk(
                 pass
 
 
-@app.websocket("/ws/meeting/{room_id}")
-async def audio_meeting_websocket(
-    websocket: WebSocket,
-    room_id: str,
-    peer_id: str = Query(...),
-    name: str = Query("Participant"),
-    token: Optional[str] = Query(None),
-):
-    """
-    WebSocket signaling channel for audio-only WebRTC meetings.
-    Coordinates peer connection offers/answers, ICE candidates, speaking detection,
-    mandatory live recording disclosure, and synchronized transcript streaming.
-    """
-    required_token = os.environ.get("AURA_AUTH_TOKEN")
-    if required_token and token != required_token:
-        await websocket.close(code=4401)
-        return
+@app.get("/meeting/{room_id}/info")
+async def meeting_room_public_info(room_id: str, request: Request):
+    """Lightweight pre-join probe returning whether a room exists and requires a passcode."""
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    enforce_rate_limit(client_ip)
+    return meeting_room_manager.get_room_public_info(room_id)
 
+
+@app.websocket("/ws/meeting/{room_id}")
+async def audio_meeting_websocket(websocket: WebSocket, room_id: str):
+    """
+    Zero-URL-leakage authenticated WebSocket handshake for AuRA Audio Meeting Rooms.
+    Credentials (optional server token + room passcode) arrive strictly inside the first
+    JSON `join` frame over TLS/WSS — never in URL query strings or access logs.
+    """
     await websocket.accept()
-    room = await meeting_room_manager.join_room(room_id, peer_id, name, websocket)
+    client_ip = websocket.client.host if websocket.client else "127.0.0.1"
+    peer_id: Optional[str] = None
+    room = None
+
     try:
+        # 1. Enforce 5-second handshake timeout and 64 KB frame ceiling before admission
+        raw_join = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+        if len(raw_join) > 65536:
+            await websocket.close(code=4413)
+            return
+
+        join_msg = json.loads(raw_join)
+        if join_msg.get("type") != "join":
+            await meeting_room_manager.safe_send(
+                websocket,
+                {
+                    "type": "auth-error",
+                    "code": "PROTOCOL_ERROR",
+                    "message": "Expected join handshake frame.",
+                },
+            )
+            await websocket.close(code=4400)
+            return
+
+        # 2. Verify optional global server token (if AURA_AUTH_TOKEN is configured)
+        required_token = os.environ.get("AURA_AUTH_TOKEN")
+        provided_token = str(join_msg.get("token") or "").strip()
+        if required_token and not hmac.compare_digest(provided_token, required_token):
+            await meeting_room_manager.safe_send(
+                websocket,
+                {
+                    "type": "auth-error",
+                    "code": "UNAUTHORIZED",
+                    "message": "Invalid or missing server authorization token.",
+                },
+            )
+            await websocket.close(code=4401)
+            return
+
+        peer_id = str(join_msg.get("peerId") or "").strip()[:64]
+        if not peer_id:
+            await websocket.close(code=4400)
+            return
+
+        display_name = str(join_msg.get("name") or "Participant")
+        passcode = join_msg.get("passcode")
+
+        # 3. Authenticate passcode / brute-force lockout BEFORE entering room
+        room, auth_error = await meeting_room_manager.authenticate_and_join(
+            room_id=room_id,
+            peer_id=peer_id,
+            name=display_name,
+            passcode=passcode if isinstance(passcode, str) else None,
+            client_ip=client_ip,
+            websocket=websocket,
+        )
+        if auth_error or not room:
+            await meeting_room_manager.safe_send(websocket, auth_error or {"type": "auth-error"})
+            await websocket.close(code=int((auth_error or {}).get("closeCode", 4403)))
+            return
+
+        # 4. Authenticated message loop
         while True:
             raw = await websocket.receive_text()
+            if len(raw) > 65536:
+                continue
             data = json.loads(raw)
             await meeting_room_manager.handle_message(room, peer_id, data)
+
+    except asyncio.TimeoutError:
+        try:
+            await websocket.close(code=4408)
+        except Exception:
+            pass
     except (WebSocketDisconnect, Exception):
-        await meeting_room_manager.leave_room(room_id, peer_id)
+        pass
+    finally:
+        if room and peer_id:
+            await meeting_room_manager.leave_room(room.room_id, peer_id)
 
 
 # Serve production frontend so mobile devices on LAN can open http://<LAN_IP>:8000/

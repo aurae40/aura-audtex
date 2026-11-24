@@ -1146,7 +1146,11 @@ export function App() {
     });
   };
 
-  const handleJoinOrCreateAudioRoom = async (roomId: string, displayName: string) => {
+  const handleJoinOrCreateAudioRoom = async (
+    roomId: string,
+    displayName: string,
+    passcode?: string
+  ) => {
     setMeetingError(null);
     pausePlay();
     const client = new AudioMeetingRoomClient(
@@ -1165,7 +1169,7 @@ export function App() {
     setBookTitle(`Audio Room ${roomId}`);
     setChapterTitle('Live Embedded Audio Meeting');
     try {
-      await client.joinRoom({ roomId, displayName, autoRecord: true });
+      await client.joinRoom({ roomId, displayName, passcode, autoRecord: true });
       setToastNotification({
         message: `Audio Recording Is Live in Room ${roomId} — all participants notified.`,
         type: 'info',
@@ -2298,6 +2302,7 @@ export function App() {
             : liveSessionState?.currentSpeaker
         }
         participantCount={meetingRoomState?.participants.length}
+        isLocked={meetingRoomState?.isLocked}
         isMuted={meetingRoomState?.isMuted}
         onToggleMute={
           meetingRoomState?.isConnected
@@ -3103,6 +3108,7 @@ export function App() {
         initialRoomCode={initialInviteRoomCode}
         liveTokens={tokens}
         onJoinOrCreateRoom={handleJoinOrCreateAudioRoom}
+        onSetRoomPasscode={(pin) => meetingClientRef.current?.setRoomPasscode(pin)}
         onToggleMute={() => meetingClientRef.current?.toggleMute()}
         onLeaveAndSave={handleLeaveAndSaveAudioRoom}
         errorMessage={meetingError}

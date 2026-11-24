@@ -15,6 +15,7 @@ const backendProxy = {
   '/llm-status': 'http://127.0.0.1:8000',
   '/analyze': 'http://127.0.0.1:8000',
   '/ask': 'http://127.0.0.1:8000',
+  '/meeting': 'http://127.0.0.1:8000',
   '/ws': { target: 'ws://127.0.0.1:8000', ws: true },
 };
 
