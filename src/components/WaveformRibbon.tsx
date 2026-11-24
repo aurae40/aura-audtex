@@ -133,20 +133,20 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
       <div className="flex justify-between items-center text-[10px] font-mono tracking-tight px-0.5">
         <div className="flex items-center gap-2">
           <span
-            className="font-bold tracking-tight"
-            style={{ color: 'var(--accent)', textShadow: '0 0 10px var(--accent-glow)' }}
+            className="font-bold tracking-tight text-amber-700 dark:text-amber-400"
+            style={{ textShadow: '0 0 10px var(--accent-glow)' }}
           >
             {formatTime(currentTime)}
           </span>
           {isSilenceVacuumActive && (
             <span
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold text-[9px] animate-in fade-in"
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 font-bold text-[9px] animate-in fade-in"
               title="Smart Silence Compression active: dead air automatically trimmed"
             >
-              <Zap className="w-2.5 h-2.5 fill-current text-emerald-400" />
+              <Zap className="w-2.5 h-2.5 fill-current text-emerald-600 dark:text-emerald-400" />
               <span>VACUUM ACTIVE</span>
               {silenceTimeSavedSec > 0 && (
-                <span className="text-emerald-200">({silenceTimeSavedSec.toFixed(1)}s saved)</span>
+                <span className="text-emerald-700 dark:text-emerald-200">({silenceTimeSavedSec.toFixed(1)}s saved)</span>
               )}
             </span>
           )}
@@ -154,11 +154,11 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
 
         <div className="flex items-center gap-2">
           {silenceGaps.length > 0 && (
-            <span className="text-[9px] text-stone-500 hidden sm:inline">
+            <span className="text-[9px] text-stone-600 dark:text-stone-400 hidden sm:inline">
               {silenceGaps.length} pauses mapped
             </span>
           )}
-          <span className="text-stone-400 font-semibold">{formatTime(duration)}</span>
+          <span className="text-stone-700 dark:text-stone-300 font-bold font-mono">{formatTime(duration)}</span>
         </div>
       </div>
 
@@ -170,7 +170,7 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
         onPointerLeave={handlePointerLeave}
-        className="relative w-full h-8 sm:h-9 cursor-pointer flex items-center px-0.5 py-1 select-none touch-none overflow-visible group"
+        className="relative w-full h-8 sm:h-9 cursor-pointer flex items-center px-1.5 py-1 select-none touch-none overflow-visible group rounded-xl bg-black/[0.04] dark:bg-white/[0.03] border border-black/8 dark:border-white/5"
       >
         {/* Waveform Vertical Bars */}
         <div className="w-full h-full flex items-center justify-between gap-[1px] sm:gap-[1.5px] pointer-events-none">
@@ -185,22 +185,16 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
                 key={idx}
                 style={{
                   height: `${heightPercent}%`,
-                  ...(isPlayed
-                    ? {
-                        background: inSilence
-                          ? 'rgba(120, 120, 120, 0.35)'
-                          : 'linear-gradient(180deg, #ffffff 0%, var(--accent) 35%, var(--accent) 100%)',
-                        boxShadow: inSilence ? 'none' : '0 0 8px var(--accent-glow)',
-                        opacity: inSilence ? 0.35 : 1,
-                      }
-                    : {
-                        background: inSilence
-                          ? 'rgba(255, 255, 255, 0.05)'
-                          : 'linear-gradient(180deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.12) 100%)',
-                        opacity: inSilence ? 0.2 : 0.7,
-                      }),
                 }}
-                className="flex-1 rounded-full transition-all duration-75"
+                className={`flex-1 rounded-full transition-all duration-75 ${
+                  isPlayed
+                    ? inSilence
+                      ? 'bg-stone-400/50 dark:bg-stone-600/50 opacity-40'
+                      : 'bg-amber-600 dark:bg-amber-400 shadow-[0_0_8px_var(--accent-glow)]'
+                    : inSilence
+                      ? 'bg-stone-300/40 dark:bg-white/10 opacity-30'
+                      : 'bg-stone-500/50 dark:bg-white/25 hover:bg-stone-600 dark:hover:bg-white/40 opacity-80'
+                }`}
               />
             );
           })}
@@ -263,11 +257,9 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
         <div
           style={{
             left: `${progressPercent}%`,
-            background: 'var(--accent)',
             boxShadow: '0 0 14px var(--accent-glow)',
-            opacity: 0.9,
           }}
-          className="absolute top-0 bottom-0 w-[1.5px] pointer-events-none z-10 transition-all duration-75 rounded-full"
+          className="absolute top-0 bottom-0 w-[2px] pointer-events-none z-10 transition-all duration-75 rounded-full bg-amber-600 dark:bg-amber-400"
         />
 
         {/* Hover / Drag Location Cursor & Tooltip */}

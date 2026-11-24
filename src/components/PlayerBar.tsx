@@ -238,7 +238,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
           onClick={() => setShowPlayerOptions((current) => !current)}
           className={`absolute right-1 w-10 h-10 rounded-full flex items-center justify-center transition active:scale-95 ${
             showPlayerOptions
-              ? 'bg-amber-500/20 border border-amber-500/50 text-amber-300'
+              ? 'bg-amber-500/20 border border-amber-500/50 text-amber-700 dark:text-amber-300'
               : 'text-stone-500 hover:text-stone-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'
           }`}
           title="Player options"
@@ -255,14 +255,14 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
             />
             <div
               ref={playerOptionsRef}
-              className="absolute right-0 bottom-full mb-2 w-64 p-2.5 rounded-2xl bg-stone-950/95 border border-white/10 shadow-2xl z-50 space-y-1.5 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2 duration-150"
+              className="absolute right-0 bottom-full mb-2 w-64 p-2.5 rounded-2xl bg-[#faf6ee] dark:bg-stone-950/95 border border-[#dfd4c2] dark:border-white/10 shadow-2xl z-50 space-y-1.5 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2 duration-150 text-stone-900 dark:text-stone-100"
             >
-              <div className="px-3 py-1 text-[10px] font-mono uppercase tracking-wider text-stone-400 border-b border-white/10 pb-1.5 mb-1 flex items-center justify-between">
+              <div className="px-3 py-1 text-[10px] font-mono uppercase tracking-wider text-stone-500 dark:text-stone-400 border-b border-black/10 dark:border-white/10 pb-1.5 mb-1 flex items-center justify-between">
                 <span>Player Options</span>
                 <button
                   type="button"
                   onClick={() => setShowPlayerOptions(false)}
-                  className="text-stone-500 hover:text-stone-200 p-0.5"
+                  className="text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 p-0.5 cursor-pointer"
                   aria-label="Close options"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -270,23 +270,23 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
               </div>
               <button
                 onClick={cycleSpeed}
-                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+                className="w-full px-3 py-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-between text-xs text-stone-800 dark:text-stone-200 transition-colors cursor-pointer"
               >
                 <span>Playback speed</span>
-                <strong className="text-amber-300 font-mono">
+                <strong className="text-amber-700 dark:text-amber-300 font-mono font-bold">
                   {playbackRate.toFixed(2).replace(/\.00$/, '')}×
                 </strong>
               </button>
               {onToggleSilenceVacuum && (
                 <button
                   onClick={onToggleSilenceVacuum}
-                  className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+                  className="w-full px-3 py-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-between text-xs text-stone-800 dark:text-stone-200 transition-colors cursor-pointer"
                 >
                   <span className="flex items-center gap-2">
-                    <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                    <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                     <span>Skip silent gaps</span>
                   </span>
-                  <span className={isSilenceVacuumActive ? 'text-emerald-300 font-bold' : 'text-stone-500'}>
+                  <span className={isSilenceVacuumActive ? 'text-emerald-700 dark:text-emerald-300 font-bold' : 'text-stone-500 dark:text-stone-500'}>
                     {isSilenceVacuumActive ? 'On' : 'Off'}
                   </span>
                 </button>
@@ -297,9 +297,9 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                     setShowPlayerOptions(false);
                     onQuickVoiceDictate();
                   }}
-                  className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center gap-2 text-xs text-stone-200"
+                  className="w-full px-3 py-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2 text-xs text-stone-800 dark:text-stone-200 transition-colors cursor-pointer"
                 >
-                  <Mic className="w-3.5 h-3.5 text-amber-400" />
+                  <Mic className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                   <span>Add spoken note</span>
                 </button>
               )}
@@ -309,22 +309,22 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                     setShowPlayerOptions(false);
                     onOpenWebLinkModal();
                   }}
-                  className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center gap-2 text-xs text-stone-200"
+                  className="w-full px-3 py-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 flex items-center gap-2 text-xs text-stone-800 dark:text-stone-200 transition-colors cursor-pointer"
                 >
-                  <Globe className="w-3.5 h-3.5 text-sky-400" />
+                  <Globe className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />
                   <span>Import Web Link / Podcast</span>
                 </button>
               )}
               {onToggleVoiceover && (
                 <button
                   onClick={onToggleVoiceover}
-                  className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+                  className="w-full px-3 py-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-between text-xs text-stone-800 dark:text-stone-200 transition-colors cursor-pointer"
                 >
                   <span className="flex items-center gap-2">
-                    <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                    <Volume2 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                     <span>AI Voiceover (Read Aloud)</span>
                   </span>
-                  <span className={isVoiceoverActive ? 'text-amber-300 font-bold' : 'text-stone-500'}>
+                  <span className={isVoiceoverActive ? 'text-amber-700 dark:text-amber-300 font-bold' : 'text-stone-500 dark:text-stone-500'}>
                     {isVoiceoverActive ? 'On' : 'Off'}
                   </span>
                 </button>
@@ -334,13 +334,13 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                   setShowPlayerOptions(false);
                   onOpenBrainwaves();
                 }}
-                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+                className="w-full px-3 py-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-between text-xs text-stone-800 dark:text-stone-200 transition-colors cursor-pointer"
               >
                 <span className="flex items-center gap-2">
-                  <Brain className="w-3.5 h-3.5 text-amber-400" />
+                  <Brain className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                   <span>Focus sound</span>
                 </span>
-                <span className="text-stone-400 font-mono text-[11px] truncate max-w-[90px]">
+                <span className="text-stone-600 dark:text-stone-400 font-mono text-[11px] truncate max-w-[90px]">
                   {isAmbienceActive ? NOISE_LABELS[activeNoiseType] : 'Off'}
                 </span>
               </button>

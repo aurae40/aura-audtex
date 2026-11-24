@@ -68,10 +68,10 @@ html.dark {
 .theme-header, .theme-surface { background-color: var(--app-surface) !important; color: var(--app-text) !important; }
 .theme-overlay { background-color: var(--app-overlay) !important; }
 .theme-modal { background-color: var(--app-panel) !important; border-color: var(--app-border) !important; color: var(--app-text) !important; }
-.theme-surface .bg-stone-900, .theme-surface .bg-stone-950, .theme-surface .bg-\[\#100e0c\], .theme-surface .bg-\[\#090807\], .theme-modal .bg-stone-900, .theme-modal .bg-stone-950, .theme-modal .bg-black\/40 {
+.theme-surface .bg-stone-900, .theme-surface .bg-stone-950, .theme-surface .bg-\[\#100e0c\], .theme-surface .bg-\[\#090807\], .theme-modal .bg-stone-900, .theme-modal .bg-stone-950, .theme-modal .bg-black\/40, .glass-panel .bg-stone-900, .glass-panel .bg-stone-950, .glass-panel .bg-stone-950\/95 {
   background-color: var(--app-panel) !important;
 }
-.theme-surface .border-stone-800, .theme-surface .border-white\/10, .theme-surface .border-white\/5, .theme-modal .border-white\/10, .theme-modal .border-white\/15 {
+.theme-surface .border-stone-800, .theme-surface .border-white\/10, .theme-surface .border-white\/5, .theme-modal .border-white\/10, .theme-modal .border-white\/15, .glass-panel .border-stone-800, .glass-panel .border-white\/10, .glass-panel .border-white\/5 {
   border-color: var(--app-border) !important;
 }
 /* Universal Light Mode Text Contrast: Never white-on-white text when dark mode is OFF */
