@@ -37,12 +37,10 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
 
   const barCount = 100;
 
-  // Generate or retrieve cached waveform peaks
   const peaks = useMemo(() => {
     return generateWaveformFromTokens(tokens, duration, barCount);
   }, [tokens, duration]);
 
-  // Pre-calculate silence intervals
   const silenceGaps: SilenceGap[] = useMemo(() => {
     return detectSilenceGaps(tokens, 0.65);
   }, [tokens]);
@@ -60,31 +58,35 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
     (clientX: number): number => {
       if (!containerRef.current || duration <= 0) return 0;
       const rect = containerRef.current.getBoundingClientRect();
+      if (rect.width <= 0) return 0;
       const relativeX = Math.max(0, Math.min(rect.width, clientX - rect.left));
-      const ratio = relativeX / rect.width;
-      return ratio * duration;
+      return (relativeX / rect.width) * duration;
     },
     [duration]
   );
 
-  const handlePointerDown = (e: React.PointerEvent) => {
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     isDraggingRef.current = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore if browser declines pointer capture
+    }
     const targetTime = calculateTimeFromClientX(e.clientX);
     onScrub(targetTime);
   };
 
-  const handlePointerMove = (e: React.PointerEvent) => {
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!containerRef.current || duration <= 0) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const relativeX = Math.max(0, Math.min(rect.width, clientXRelativeToRect(e.clientX, rect)));
+    if (rect.width <= 0) return;
+    const relativeX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
     const targetTime = (relativeX / rect.width) * duration;
 
     if (isDraggingRef.current) {
       onScrub(targetTime);
     }
 
-    // Find closest token word for hover tooltip
     let tokenWord: string | undefined;
     if (tokens && tokens.length > 0) {
       const match = tokens.find((t) => targetTime >= t.start && targetTime <= t.end);
@@ -98,13 +100,23 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
     });
   };
 
-  const handlePointerUp = (e: React.PointerEvent) => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     isDraggingRef.current = false;
     try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
     } catch {
       // ignore
     }
+    if (e.pointerType !== 'mouse') {
+      setHoverPosition(null);
+    }
+  };
+
+  const handlePointerCancel = () => {
+    isDraggingRef.current = false;
+    setHoverPosition(null);
   };
 
   const handlePointerLeave = () => {
@@ -113,11 +125,6 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
     }
   };
 
-  function clientXRelativeToRect(clientX: number, rect: DOMRect): number {
-    return Math.max(0, Math.min(rect.width, clientX - rect.left));
-  }
-
-  // Calculate current playback percentage
   const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
 
   return (
@@ -155,54 +162,52 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
         </div>
       </div>
 
-      {/* Main Interactive Borderless Waveform Ribbon Canvas Container */}
+      {/* Main Interactive Borderless Waveform Ribbon (touch-none locks mobile scrubbing) */}
       <div
         ref={containerRef}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
         onPointerLeave={handlePointerLeave}
-        className="relative w-full h-8 sm:h-9 cursor-pointer flex items-center px-0.5 py-1 select-none overflow-visible group"
+        className="relative w-full h-8 sm:h-9 cursor-pointer flex items-center px-0.5 py-1 select-none touch-none overflow-visible group"
       >
-        {/* Waveform Vertical Bars (Centered Soundwave) */}
-        <div className="w-full h-full flex items-center justify-between gap-[1px] sm:gap-[1.5px]">
+        {/* Waveform Vertical Bars */}
+        <div className="w-full h-full flex items-center justify-between gap-[1px] sm:gap-[1.5px] pointer-events-none">
           {peaks.map((peak, idx) => {
             const barTime = (idx / barCount) * duration;
             const isPlayed = duration > 0 && barTime <= currentTime;
             const inSilence = isBarInSilence(idx);
-
-            // Minimum bar height 14%, max 94%
             const heightPercent = Math.max(14, Math.min(94, peak * 94));
 
-              return (
-                <div
-                  key={idx}
-                  style={{
-                    height: `${heightPercent}%`,
-                    ...(isPlayed
-                      ? {
-                          background: inSilence
-                            ? 'rgba(120, 120, 120, 0.35)'
-                            : 'linear-gradient(180deg, #ffffff 0%, var(--accent) 35%, var(--accent) 100%)',
-                          boxShadow: inSilence ? 'none' : '0 0 8px var(--accent-glow)',
-                          opacity: inSilence ? 0.35 : 1,
-                        }
-                      : {
-                          background: inSilence
-                            ? 'rgba(255, 255, 255, 0.05)'
-                            : 'linear-gradient(180deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.12) 100%)',
-                          opacity: inSilence ? 0.2 : 0.7,
-                        }),
-                  }}
-                  className="flex-1 rounded-full transition-all duration-75"
-                />
-              );
+            return (
+              <div
+                key={idx}
+                style={{
+                  height: `${heightPercent}%`,
+                  ...(isPlayed
+                    ? {
+                        background: inSilence
+                          ? 'rgba(120, 120, 120, 0.35)'
+                          : 'linear-gradient(180deg, #ffffff 0%, var(--accent) 35%, var(--accent) 100%)',
+                        boxShadow: inSilence ? 'none' : '0 0 8px var(--accent-glow)',
+                        opacity: inSilence ? 0.35 : 1,
+                      }
+                    : {
+                        background: inSilence
+                          ? 'rgba(255, 255, 255, 0.05)'
+                          : 'linear-gradient(180deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.12) 100%)',
+                        opacity: inSilence ? 0.2 : 0.7,
+                      }),
+                }}
+                className="flex-1 rounded-full transition-all duration-75"
+              />
+            );
           })}
         </div>
 
-        {/* Highlight Spatial Pins (Micro-diamonds anchored at quote timestamps) */}
+        {/* Highlight Spatial Pins */}
         {userHighlights.map((h, i) => {
-          // If highlight has timestamp or word index
           const startSec = (h as any).timestampSec ?? (tokens[h.wordIndices?.[0]]?.start ?? 0);
           const pinPercent = duration > 0 ? (startSec / duration) * 100 : 0;
           if (pinPercent < 0 || pinPercent > 100) return null;
@@ -215,6 +220,7 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
                 background: 'var(--accent)',
                 boxShadow: '0 0 8px var(--accent-glow)',
               }}
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 onScrub(startSec);
@@ -222,7 +228,6 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
               title={`Highlight: "${h.text}" (${formatTime(startSec)})`}
               className="absolute -top-1 -translate-x-1/2 z-20 w-2.5 h-2.5 rounded-full border border-white/90 cursor-pointer hover:scale-150 transition-transform group/pin"
             >
-              {/* Micro-pin tool-tip on hover */}
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover/pin:flex flex-col items-center pointer-events-none z-30">
                 <div
                   style={{ borderColor: 'var(--accent)' }}
@@ -240,6 +245,7 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
         {milestoneTimeSec !== undefined && milestoneTimeSec > 0 && duration > 0 && (
           <div
             style={{ left: `${(milestoneTimeSec / duration) * 100}%` }}
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               onScrub(milestoneTimeSec);
@@ -253,7 +259,7 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
           </div>
         )}
 
-        {/* Live Scrubber Needle (Clean, Modern Ultra-Sleek Laser Thread, NO top point/head) */}
+        {/* Live Scrubber Needle */}
         <div
           style={{
             left: `${progressPercent}%`,
@@ -264,7 +270,7 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
           className="absolute top-0 bottom-0 w-[1.5px] pointer-events-none z-10 transition-all duration-75 rounded-full"
         />
 
-        {/* Hover Location Cursor & Tooltip */}
+        {/* Hover / Drag Location Cursor & Tooltip */}
         {hoverPosition && (
           <div
             style={{
