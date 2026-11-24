@@ -35,6 +35,7 @@ import {
   checkLocalServerHealth,
   type TranscriberEngine,
   type TranscriptionResult,
+  type BuiltinWhisperModel,
 } from './services/transcriptionService';
 import {
   getCachedTranscription,
@@ -1385,7 +1386,7 @@ export function App() {
     engine: TranscriberEngine,
     storeAudioInVault: boolean,
     customUrl?: string,
-    builtinModel: 'whisper-tiny.en' | 'whisper-base.en' = 'whisper-tiny.en',
+    builtinModel: BuiltinWhisperModel = 'whisper-tiny.en',
     fileOverride?: File
   ) => {
     const file = fileOverride || stagedImportFile;

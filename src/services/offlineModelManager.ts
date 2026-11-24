@@ -1,7 +1,7 @@
-import { getBuiltinWhisperPipeline } from './builtinWhisperService';
+import { getBuiltinWhisperPipeline, type BuiltinWhisperModel } from './builtinWhisperService';
 
 export interface OfflineModelInfo {
-  id: 'whisper-tiny.en' | 'whisper-base.en';
+  id: BuiltinWhisperModel;
   name: string;
   sizeMB: number;
   sizeFormatted: string;
@@ -27,6 +27,15 @@ export const AVAILABLE_OFFLINE_MODELS: Omit<OfflineModelInfo, 'isDownloaded' | '
     languages: 'English (Optimized)',
   },
   {
+    id: 'whisper-tiny',
+    name: 'Whisper Tiny (Multilingual)',
+    sizeMB: 39,
+    sizeFormatted: '~39 MB',
+    speed: 'Ultra-fast (~3×–5× real-time)',
+    target: 'Mobile, iPhone/iPad, 99 Languages',
+    languages: '99 Languages (Auto-Detect, Spanish, Amharic, etc.)',
+  },
+  {
     id: 'whisper-base.en',
     name: 'Whisper Base (English)',
     sizeMB: 74,
@@ -35,6 +44,15 @@ export const AVAILABLE_OFFLINE_MODELS: Omit<OfflineModelInfo, 'isDownloaded' | '
     target: 'Desktop, High-Performance PCs, Scholarly Audio',
     languages: 'English (Enhanced Vocabulary)',
   },
+  {
+    id: 'whisper-base',
+    name: 'Whisper Base (Multilingual)',
+    sizeMB: 74,
+    sizeFormatted: '~74 MB',
+    speed: 'High-Accuracy (~1.5×–2× real-time)',
+    target: 'Desktop, High-Performance PCs, 99 Languages',
+    languages: '99 Languages (Auto-Detect, Spanish, Amharic, etc.)',
+  },
 ];
 
 /**
@@ -42,7 +60,7 @@ export const AVAILABLE_OFFLINE_MODELS: Omit<OfflineModelInfo, 'isDownloaded' | '
  * is detected honestly instead of trusting stale localStorage flags.
  */
 export async function isModelCachedOffline(
-  modelId: 'whisper-tiny.en' | 'whisper-base.en'
+  modelId: BuiltinWhisperModel
 ): Promise<boolean> {
   if (typeof caches !== 'undefined') {
     try {
@@ -119,7 +137,7 @@ export async function getAllOfflineModelsStatus(): Promise<OfflineModelInfo[]> {
  * Downloads and caches a Whisper neural model explicitly for offline use.
  */
 export async function downloadModelForOffline(
-  modelId: 'whisper-tiny.en' | 'whisper-base.en',
+  modelId: BuiltinWhisperModel,
   onProgress: (progressPct: number, message: string) => void
 ): Promise<void> {
   onProgress(5, `Connecting to model repository for ${modelId}...`);
@@ -142,7 +160,7 @@ export async function downloadModelForOffline(
  * Removes a cached model from CacheStorage and local tracking to free device storage.
  */
 export async function removeCachedModel(
-  modelId: 'whisper-tiny.en' | 'whisper-base.en'
+  modelId: BuiltinWhisperModel
 ): Promise<void> {
   localStorage.removeItem(`${MODEL_DOWNLOAD_PREFIX}${modelId}`);
   if (typeof caches !== 'undefined') {

@@ -5,7 +5,79 @@ import { isPhysicalMobileDevice } from './hardwareDetectionService';
 import { buildAcousticTrackFromPCM } from './audioAnalyserService';
 import { applyGlossaryCorrections } from './glossaryService';
 
-export type BuiltinWhisperModel = 'whisper-tiny.en' | 'whisper-base.en';
+export type BuiltinWhisperModel =
+  | 'whisper-tiny.en'
+  | 'whisper-base.en'
+  | 'whisper-tiny'
+  | 'whisper-base';
+
+export interface WhisperLanguageOption {
+  code: string;
+  label: string;
+}
+
+export const WHISPER_LANGUAGE_OPTIONS: WhisperLanguageOption[] = [
+  { code: 'auto', label: 'Auto-Detect (Multilingual)' },
+  { code: 'en', label: 'English' },
+  { code: 'am', label: 'Amharic (አማርኛ)' },
+  { code: 'es', label: 'Spanish (Español)' },
+  { code: 'fr', label: 'French (Français)' },
+  { code: 'de', label: 'German (Deutsch)' },
+  { code: 'ar', label: 'Arabic (العربية)' },
+  { code: 'pt', label: 'Portuguese (Português)' },
+  { code: 'it', label: 'Italian (Italiano)' },
+  { code: 'hi', label: 'Hindi (हिन्दी)' },
+  { code: 'zh', label: 'Chinese (中文)' },
+  { code: 'ja', label: 'Japanese (日本語)' },
+  { code: 'ko', label: 'Korean (한국어)' },
+  { code: 'ru', label: 'Russian (Русский)' },
+  { code: 'sw', label: 'Swahili (Kiswahili)' },
+  { code: 'tr', label: 'Turkish (Türkçe)' },
+];
+
+const BUILTIN_MODEL_STORAGE_KEY = 'aura_builtin_whisper_model';
+const BUILTIN_LANG_STORAGE_KEY = 'aura_builtin_whisper_language';
+
+export function getStoredBuiltinModel(): BuiltinWhisperModel {
+  try {
+    const saved = localStorage.getItem(BUILTIN_MODEL_STORAGE_KEY) as BuiltinWhisperModel | null;
+    if (
+      saved === 'whisper-tiny.en' ||
+      saved === 'whisper-base.en' ||
+      saved === 'whisper-tiny' ||
+      saved === 'whisper-base'
+    ) {
+      return saved;
+    }
+  } catch {
+    // ignore
+  }
+  return 'whisper-tiny.en';
+}
+
+export function setStoredBuiltinModel(model: BuiltinWhisperModel): void {
+  try {
+    localStorage.setItem(BUILTIN_MODEL_STORAGE_KEY, model);
+  } catch {
+    // ignore
+  }
+}
+
+export function getStoredWhisperLanguage(): string {
+  try {
+    return localStorage.getItem(BUILTIN_LANG_STORAGE_KEY) || 'en';
+  } catch {
+    return 'en';
+  }
+}
+
+export function setStoredWhisperLanguage(langCode: string): void {
+  try {
+    localStorage.setItem(BUILTIN_LANG_STORAGE_KEY, langCode || 'auto');
+  } catch {
+    // ignore
+  }
+}
 
 let whisperWorker: Worker | null = null;
 
@@ -35,10 +107,6 @@ function getAudioContextConstructor(): AudioContextConstructor | undefined {
   );
 }
 
-/**
- * Resamples any decoded AudioBuffer into a 16,000 Hz Mono Float32Array
- * using pure JS linear PCM interpolation (immune to Safari OfflineAudioContext limits).
- */
 export function resampleTo16kMono(audioBuffer: AudioBuffer): Float32Array {
   const sourceRate = audioBuffer.sampleRate;
   const numChannels = audioBuffer.numberOfChannels;
@@ -71,9 +139,6 @@ export function resampleTo16kMono(audioBuffer: AudioBuffer): Float32Array {
   return output;
 }
 
-/**
- * Decodes an audio file into a 16 kHz Mono Float32Array without holding duplicate copies in RAM.
- */
 export async function decodeAudioTo16kMono(file: File): Promise<{
   audioData: Float32Array;
   duration: number;
@@ -141,15 +206,12 @@ export async function decodeAudioTo16kMono(file: File): Promise<{
   }
 }
 
-/**
- * Pre-warms and caches the selected Whisper model inside the Web Worker.
- */
 export async function getBuiltinWhisperPipeline(
   model: BuiltinWhisperModel = 'whisper-tiny.en',
   onProgress?: (status: string) => void
 ): Promise<boolean> {
   const silent = new Float32Array(3200);
-  await runWorkerTranscription(silent, 0.2, model, onProgress);
+  await runWorkerTranscription(silent, 0.2, model, undefined, onProgress);
   return true;
 }
 
@@ -157,9 +219,13 @@ function runWorkerTranscription(
   audioData: Float32Array,
   duration: number,
   model: BuiltinWhisperModel,
+  language?: string,
   onProgress?: (status: string) => void,
   abortSignal?: AbortSignal
-): Promise<Array<{ text: string; timestamp: [number, number] }>> {
+): Promise<{
+  chunks: Array<{ text: string; timestamp: [number, number] }>;
+  hardware?: string;
+}> {
   return new Promise((resolve, reject) => {
     if (abortSignal?.aborted) {
       reject(new DOMException('Transcription cancelled by user', 'AbortError'));
@@ -189,7 +255,7 @@ function runWorkerTranscription(
         onProgress?.(data.status);
       } else if (data.type === 'result') {
         cleanup();
-        resolve(data.chunks || []);
+        resolve({ chunks: data.chunks || [], hardware: data.hardware });
       } else if (data.type === 'error') {
         cleanup();
         reject(new Error(data.error || 'On-device Whisper worker failed.'));
@@ -206,12 +272,12 @@ function runWorkerTranscription(
     worker.addEventListener('error', onError);
     abortSignal?.addEventListener('abort', onAbort, { once: true });
 
-    // Zero-copy Transferable ownership transfer to worker
     worker.postMessage(
       {
         type: 'transcribe',
         id,
         model,
+        language,
         audioData,
         duration,
         isMobile: isPhysicalMobileDevice(),
@@ -222,14 +288,15 @@ function runWorkerTranscription(
 }
 
 /**
- * Transcribes audio 100% on-device inside a background Web Worker.
- * Pre-computes real PCM acoustic frames for iOS Safari visualizer sync before transferring the buffer.
+ * Transcribes audio 100% on-device inside a GPU-aware Web Worker.
+ * Automatically switches from `.en` to multilingual Whisper if a non-English language is chosen.
  */
 export async function transcribeWithBuiltinWhisper(
   file: File,
-  modelName: BuiltinWhisperModel = 'whisper-tiny.en',
+  modelName: BuiltinWhisperModel = getStoredBuiltinModel(),
   onProgress?: (status: string) => void,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  languageOverride?: string
 ): Promise<TranscriptionResult> {
   if (abortSignal?.aborted) {
     throw new DOMException('Transcription cancelled by user', 'AbortError');
@@ -241,8 +308,10 @@ export async function transcribeWithBuiltinWhisper(
       wakeLock = await (navigator as any).wakeLock.request('screen');
     }
   } catch {
-    // Screen Wake Lock is optional
+    // Wake Lock optional
   }
+
+  const startedAt = performance.now();
 
   try {
     onProgress?.('Decoding audio to 16 kHz speech channel...');
@@ -255,14 +324,25 @@ export async function transcribeWithBuiltinWhisper(
       throw new DOMException('Transcription cancelled by user', 'AbortError');
     }
 
-    const effectiveModel: BuiltinWhisperModel = isPhysicalMobileDevice()
-      ? 'whisper-tiny.en'
-      : modelName;
+    const requestedLang = languageOverride ?? getStoredWhisperLanguage();
+    const needsMultilingual = requestedLang && requestedLang !== 'en';
+    const isMobile = isPhysicalMobileDevice();
 
-    const rawChunks = await runWorkerTranscription(
+    // Auto-select compatible model: keep mobile lightweight (`tiny`) and upgrade `.en` -> multilingual when needed
+    let effectiveModel: BuiltinWhisperModel = modelName;
+    if (needsMultilingual && effectiveModel.endsWith('.en')) {
+      effectiveModel = effectiveModel.startsWith('whisper-base') && !isMobile
+        ? 'whisper-base'
+        : 'whisper-tiny';
+    } else if (isMobile && effectiveModel.startsWith('whisper-base')) {
+      effectiveModel = needsMultilingual ? 'whisper-tiny' : 'whisper-tiny.en';
+    }
+
+    const { chunks: rawChunks, hardware } = await runWorkerTranscription(
       audioData,
       duration,
       effectiveModel,
+      requestedLang,
       onProgress,
       abortSignal
     );
@@ -296,22 +376,31 @@ export async function transcribeWithBuiltinWhisper(
     }
 
     const { tokens: correctedTokens } = applyGlossaryCorrections(tokens);
-    return buildTranscriptionResult(file, correctedTokens, duration, onProgress);
+    const elapsedSec = Math.max(0.1, (performance.now() - startedAt) / 1000);
+    const result = buildTranscriptionResult(file, correctedTokens, duration, onProgress);
+
+    result.engineInfo = {
+      engine: 'on-device-whisper',
+      model: effectiveModel,
+      hardware: hardware || 'WebGPU / WASM',
+      durationSec: Number(duration.toFixed(2)),
+      transcriptionTimeSec: Number(elapsedSec.toFixed(2)),
+      speedupFactor: `${(duration / elapsedSec).toFixed(1)}x real-time`,
+      language: requestedLang === 'auto' ? 'en' : requestedLang,
+    };
+
+    return result;
   } finally {
     wakeLock?.release().catch(() => {});
   }
 }
 
-/**
- * Legacy export kept only for incremental compilation safety before Phase 4 updates App.tsx.
- * Delegates directly to real on-device Whisper instead of emitting placeholder text.
- */
 export async function transcribeWithAcousticEngine(
   file: File,
   _estimatedDuration: number = 30,
   onProgress?: (status: string) => void
 ): Promise<TranscriptionResult> {
-  return transcribeWithBuiltinWhisper(file, 'whisper-tiny.en', onProgress);
+  return transcribeWithBuiltinWhisper(file, getStoredBuiltinModel(), onProgress);
 }
 
 export function buildTranscriptionResult(
@@ -331,30 +420,10 @@ export function buildTranscriptionResult(
       mainIdea: `Ingested "${file.name}" (${tokens.length} words transcribed on-device).`,
       conceptDecoder: {
         term: 'On-Device Speech Illumination',
-        explanation: 'Transcribed locally in a background worker with synchronized word timestamps.',
+        explanation: 'Transcribed locally in a background GPU/WASM worker with exact word timestamps.',
       },
       connectedTags: ['Local AI', 'Speech-to-Text', 'AuRA_AuDTEX'],
       realWorldExample: 'Every spoken word is indexed directly to its exact acoustic timestamp.',
-    },
-    {
-      thresholdTime: Math.max(15, duration * 0.25),
-      mainIdea: 'Core argument development and supporting mechanisms.',
-      conceptDecoder: {
-        term: 'Conceptual Grounding',
-        explanation: 'Anchoring auditory arguments to spatial page positions improves recall.',
-      },
-      connectedTags: ['Working Memory', 'Dual-Coding'],
-      realWorldExample: 'Highlighting physical margins while listening to a lecture.',
-    },
-    {
-      thresholdTime: Math.max(30, duration * 0.65),
-      mainIdea: 'Synthesis phase connecting key threads into takeaways.',
-      conceptDecoder: {
-        term: 'Epistemic Synthesis',
-        explanation: 'Consolidating spoken discourse into structured flashcards and notes.',
-      },
-      connectedTags: ['Retention', 'Synthesis'],
-      realWorldExample: 'Turning transient speech into a searchable reference document.',
     },
   ];
 
@@ -363,23 +432,16 @@ export function buildTranscriptionResult(
     wordCountTrigger: Math.min(2500, tokens.length),
     audioTimestampSec: Math.round(duration * 0.7),
     timeFormatted: formatTime(Math.round(duration * 0.7)),
-    unspokenSubtext: 'Synthesized from on-device word-aligned transcript.',
+    unspokenSubtext: 'Synthesizing verbatim insights from this recording...',
     subtextScore: 'On-Device Neural Alignment',
     thesisSteps: [
-      { pages: 'Pages 1-3', description: 'Opening premise and foundational terms introduced.' },
-      { pages: 'Pages 4-7', description: 'Core mechanisms and examples expanded.' },
-      { pages: 'Pages 8-10', description: 'Conclusions and actionable recall points.' },
+      { pages: 'Overview', description: `Transcribed ${tokens.length} spoken words on-device.` },
     ],
     actionableBridge:
       fullText.length > 50
         ? `Review the highlights and vocabulary extracted from "${cleanFileName}".`
         : 'Add timestamped reflections as you listen.',
-    studyFlashcards: [
-      {
-        q: 'Why run Whisper inside a Web Worker on mobile?',
-        a: 'It isolates ONNX WASM computation off the main thread so playback, touch gestures, and the 60 fps visualizer stay responsive.',
-      },
-    ],
+    studyFlashcards: [],
   };
 
   return {

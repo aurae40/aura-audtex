@@ -63,6 +63,7 @@ import {
   removeCachedModel,
   type OfflineModelInfo,
 } from '../services/offlineModelManager';
+import type { BuiltinWhisperModel } from '../services/builtinWhisperService';
 import {
   getDeviceCapabilities,
   type DeviceCapabilities,
@@ -239,7 +240,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
     }
   };
 
-  const handleDownloadModel = async (modelId: 'whisper-tiny.en' | 'whisper-base.en') => {
+  const handleDownloadModel = async (modelId: BuiltinWhisperModel) => {
     setDownloadingModelId(modelId);
     setDownloadProgress({ pct: 5, msg: 'Starting neural download...' });
     try {
@@ -259,7 +260,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
     }
   };
 
-  const handleDeleteModel = async (modelId: 'whisper-tiny.en' | 'whisper-base.en') => {
+  const handleDeleteModel = async (modelId: BuiltinWhisperModel) => {
     if (!window.confirm(`Delete ${modelId} from browser cache to reclaim storage?`)) return;
     try {
       await removeCachedModel(modelId);
