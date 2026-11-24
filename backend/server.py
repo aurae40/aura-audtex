@@ -537,65 +537,6 @@ def list_available_models():
     }
 
 
-# ==========================================
-# Ollama Tier-1 Adaptive Intelligence
-# ==========================================
-
-class OllamaAnalyzeRequest(BaseModel):
-    title: str = "Audio Recording"
-    tokens: List[Dict[str, Any]]
-    duration: float
-    lens: Optional[str] = "codex"
-    preferred_model: Optional[str] = None
-
-
-class OllamaAskRequest(BaseModel):
-    question: str
-    title: str = "Audio Recording"
-    passages: List[Dict[str, Any]]
-    duration: float
-    preferred_model: Optional[str] = None
-
-
-@app.get("/ollama/status")
-@app.get("/llm-status")
-async def ollama_status_endpoint():
-    """Detects local Ollama availability, active host, and installed models."""
-    return await detect_ollama_status()
-
-
-@app.post("/ollama/analyze")
-@app.post("/analyze")
-async def ollama_analyze_endpoint(req: OllamaAnalyzeRequest):
-    """Generates source-grounded Marginalia & Author Dossier using local Ollama."""
-    try:
-        return await generate_ollama_analysis(
-            title=req.title,
-            tokens=req.tokens,
-            duration=req.duration,
-            lens=req.lens or "codex",
-            preferred_model=req.preferred_model,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.post("/ollama/ask")
-@app.post("/ask")
-async def ollama_ask_endpoint(req: OllamaAskRequest):
-    """Answers user question with timestamp citations grounded in retrieved audio passages."""
-    try:
-        return await answer_question_with_ollama(
-            question=req.question,
-            title=req.title,
-            passages=req.passages,
-            duration=req.duration,
-            preferred_model=req.preferred_model,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
 # In-memory IP rate limiter: max 12 transcription jobs per minute per client IP
 RATE_LIMIT_STORE: Dict[str, List[float]] = {}
 RATE_LIMIT_MAX_PER_MINUTE = 12
@@ -914,6 +855,90 @@ async def transcribe_url_endpoint(
                 os.remove(tmp_path)
             except Exception:
                 pass
+
+
+class AnalyzeRequest(BaseModel):
+    title: str
+    duration: float
+    tokens: List[Dict[str, Any]]
+    lens: Optional[str] = "codex"
+    model: Optional[str] = None
+
+
+class AskRequest(BaseModel):
+    question: str
+    title: str
+    duration: float
+    passages: List[Dict[str, Any]]
+    model: Optional[str] = None
+
+
+@app.get("/llm-status")
+@app.get("/ollama/status")
+async def llm_status_endpoint():
+    """Reports whether a free local Ollama LLM is available on this host."""
+    return await detect_ollama_status()
+
+
+@app.post("/analyze")
+@app.post("/ollama/analyze")
+async def analyze_transcript_endpoint(
+    req: AnalyzeRequest,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Generates recording-grounded Marginalia & Author Dossier using local Ollama."""
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    enforce_rate_limit(client_ip)
+
+    required_token = os.environ.get("AURA_AUTH_TOKEN")
+    if required_token and authorization != f"Bearer {required_token}":
+        raise HTTPException(status_code=401, detail="Unauthorized: invalid or missing engine token.")
+
+    if not req.tokens:
+        raise HTTPException(status_code=400, detail="No transcript tokens provided.")
+
+    try:
+        async with CONCURRENCY_SEMAPHORE:
+            return await generate_ollama_analysis(
+                title=req.title,
+                tokens=req.tokens,
+                duration=req.duration,
+                lens=req.lens or "codex",
+                preferred_model=req.model,
+            )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Local Ollama analysis unavailable: {exc}") from exc
+
+
+@app.post("/ask")
+@app.post("/ollama/ask")
+async def ask_audio_endpoint(
+    req: AskRequest,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """Answers a user question strictly grounded in retrieved timestamped audio excerpts."""
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    enforce_rate_limit(client_ip)
+
+    required_token = os.environ.get("AURA_AUTH_TOKEN")
+    if required_token and authorization != f"Bearer {required_token}":
+        raise HTTPException(status_code=401, detail="Unauthorized: invalid or missing engine token.")
+
+    if not req.question.strip() or not req.passages:
+        raise HTTPException(status_code=400, detail="Question and audio passages are required.")
+
+    try:
+        return await answer_question_with_ollama(
+            question=req.question.strip(),
+            title=req.title,
+            passages=req.passages,
+            duration=req.duration,
+            preferred_model=req.model,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Local Ollama Q&A unavailable: {exc}") from exc
 
 
 # Serve production frontend so mobile devices on LAN can open http://<LAN_IP>:8000/
