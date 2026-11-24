@@ -1,12 +1,17 @@
 /// <reference lib="webworker" />
 import { detectDeviceGPU, type DeviceGPUProfile } from '../services/gpuDetectionService';
 
-type BuiltinWhisperModel = 'whisper-tiny.en' | 'whisper-base.en';
+export type BuiltinWhisperModel =
+  | 'whisper-tiny.en'
+  | 'whisper-base.en'
+  | 'whisper-tiny'
+  | 'whisper-base';
 
 interface WorkerTranscribeMessage {
   type: 'transcribe';
   id: string;
   model: BuiltinWhisperModel;
+  language?: string;
   audioData: Float32Array;
   duration: number;
   isMobile: boolean;
@@ -30,11 +35,10 @@ async function loadTransformers() {
   return cachedTransformers;
 }
 
-/**
- * Builds a hardware-specific candidate execution ladder for the exact detected GPU.
- * Every device (iPhone Metal, Android Adreno/Mali Vulkan, Windows D3D12, Mac Metal)
- * tries its own optimal native GPU precision first, with rock-solid WASM SIMD fallback.
- */
+function isEnglishOnlyModel(model: BuiltinWhisperModel): boolean {
+  return model.endsWith('.en');
+}
+
 function buildCandidateLadder(gpu: DeviceGPUProfile, isMobile: boolean): CandidateBackend[] {
   const candidates: CandidateBackend[] = [];
 
@@ -42,7 +46,6 @@ function buildCandidateLadder(gpu: DeviceGPUProfile, isMobile: boolean): Candida
     const fpEncoder = gpu.hasShaderF16 ? 'fp16' : 'fp32';
 
     if (gpu.family === 'apple') {
-      // Apple Silicon & iPhone/iPad Metal (Safari 26+): unified memory handles fp16/q4 smoothly
       candidates.push({
         device: 'webgpu',
         dtype: { encoder_model: fpEncoder, decoder_model_merged: 'q4' },
@@ -54,7 +57,6 @@ function buildCandidateLadder(gpu: DeviceGPUProfile, isMobile: boolean): Candida
         label: `${gpu.displayLabel} (q4)`,
       });
     } else if (gpu.family === 'qualcomm-adreno' || gpu.family === 'arm-mali') {
-      // Mobile Android GPUs (Vulkan): keep VRAM footprint compact with q4 first
       candidates.push({
         device: 'webgpu',
         dtype: 'q4',
@@ -68,7 +70,6 @@ function buildCandidateLadder(gpu: DeviceGPUProfile, isMobile: boolean): Candida
         });
       }
     } else if (gpu.family === 'nvidia' || gpu.family === 'amd' || gpu.family === 'intel') {
-      // Desktop / Laptop GPUs (D3D12 / Vulkan)
       candidates.push({
         device: 'webgpu',
         dtype: { encoder_model: fpEncoder, decoder_model_merged: 'q4' },
@@ -80,7 +81,6 @@ function buildCandidateLadder(gpu: DeviceGPUProfile, isMobile: boolean): Candida
         label: `${gpu.displayLabel} (q4)`,
       });
     } else {
-      // Generic hardware WebGPU adapter
       candidates.push({
         device: 'webgpu',
         dtype: 'q4',
@@ -89,7 +89,6 @@ function buildCandidateLadder(gpu: DeviceGPUProfile, isMobile: boolean): Candida
     }
   }
 
-  // Universal resilient CPU fallbacks (works on every browser & older iOS/Android)
   candidates.push({
     device: 'wasm',
     dtype: 'q8',
@@ -184,6 +183,8 @@ async function getPipeline(
 
 async function runChunkedInference(
   transcriber: any,
+  model: BuiltinWhisperModel,
+  language: string | undefined,
   backendLabel: string,
   audioData: Float32Array,
   duration: number,
@@ -195,6 +196,23 @@ async function runChunkedInference(
   const totalSamples = audioData.length;
   const totalWindows = Math.max(1, Math.ceil(totalSamples / windowSamples));
   const allChunks: Array<{ text: string; timestamp: [number, number] }> = [];
+
+  const multilingual = !isEnglishOnlyModel(model);
+  const cleanLang = language && language !== 'auto' ? language.toLowerCase().slice(0, 2) : undefined;
+
+  const baseOptions: Record<string, any> = {
+    return_timestamps: true,
+    chunk_length_s: windowSec,
+    stride_length_s: 4,
+  };
+
+  // CRITICAL: Only pass `task` / `language` on multilingual Whisper models (.en models throw if given language/task)
+  if (multilingual) {
+    baseOptions.task = 'transcribe';
+    if (cleanLang) {
+      baseOptions.language = cleanLang;
+    }
+  }
 
   for (let w = 0; w < totalWindows; w++) {
     const startSample = w * windowSamples;
@@ -216,13 +234,14 @@ async function runChunkedInference(
 
     let out: any;
     try {
-      out = await transcriber(slice, {
-        return_timestamps: true,
-        chunk_length_s: windowSec,
-        stride_length_s: 4,
-      });
+      out = await transcriber(slice, baseOptions);
     } catch {
-      out = await transcriber(slice);
+      const minimalOpts: Record<string, any> = {};
+      if (multilingual) {
+        minimalOpts.task = 'transcribe';
+        if (cleanLang) minimalOpts.language = cleanLang;
+      }
+      out = await transcriber(slice, minimalOpts);
     }
 
     if (Array.isArray(out?.chunks) && out.chunks.length > 0) {
@@ -260,7 +279,7 @@ self.onmessage = async (event: MessageEvent<WorkerTranscribeMessage>) => {
   const msg = event.data;
   if (msg.type !== 'transcribe') return;
 
-  const { id, model, audioData, duration, isMobile } = msg;
+  const { id, model, language, audioData, duration, isMobile } = msg;
   const postStatus = (status: string, progress?: number) => {
     self.postMessage({ type: 'progress', id, status, progress });
   };
@@ -270,11 +289,13 @@ self.onmessage = async (event: MessageEvent<WorkerTranscribeMessage>) => {
     const gpu = await detectDeviceGPU();
     const windowSec = isMobile ? 25 : gpu.recommendedWindowSec;
 
-    let { transcriber, backendLabel } = await getPipeline(model, gpu, isMobile, postStatus, false);
+    const { transcriber, backendLabel } = await getPipeline(model, gpu, isMobile, postStatus, false);
 
     try {
       const chunks = await runChunkedInference(
         transcriber,
+        model,
+        language,
         backendLabel,
         audioData,
         duration,
@@ -283,13 +304,14 @@ self.onmessage = async (event: MessageEvent<WorkerTranscribeMessage>) => {
       );
       self.postMessage({ type: 'result', id, chunks, hardware: backendLabel });
     } catch (gpuRuntimeErr) {
-      // If a mobile WebGPU driver throws mid-inference (shader/VRAM OOM), recover cleanly on WASM
       if (!backendLabel.includes('WASM')) {
         console.warn('[WhisperWorker] WebGPU runtime error, recovering on WASM SIMD:', gpuRuntimeErr);
         cachedPipeline = null;
         const fallback = await getPipeline(model, gpu, isMobile, postStatus, true);
         const chunks = await runChunkedInference(
           fallback.transcriber,
+          model,
+          language,
           fallback.backendLabel,
           audioData,
           duration,
