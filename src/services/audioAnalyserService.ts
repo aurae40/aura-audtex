@@ -1,15 +1,4 @@
-/**
- * Calibrated Audio Analyser & Real-Time Signal Processing Service
- * Connects directly to HTML5 Audio Element via Web Audio API AnalyserNode.
- *
- * Implements two distinct modes:
- * 1. Listening Visualizer: Lightweight decorative spectrum for playback with honest signal state.
- * 2. Audio Analysis: Calibrated FFT (2048 bins), dynamic sample-rate bin mapping,
- *    time-domain RMS/Peak metering, calibrated 6-band acoustic division, and real VAD classification.
- *
- * THE CARDINAL RULE: Never synthesize fake bars from text/word patterns.
- * If audio signal is not present or unanalyzable, report unavailable honestly.
- */
+import { detectHardwareScreen } from './hardwareDetectionService';
 
 export interface CalibratedBand {
   id: 'sub' | 'low' | 'lowMid' | 'mid' | 'presence' | 'brilliance';
@@ -26,81 +15,44 @@ export interface AudioAnalysisTelemetry {
   sampleRate: number;
   fftSize: number;
   binWidthHz: number;
-  rmsLevel: number;        // 0.0 to 1.0
-  rmsDbfs: number;         // dBFS (-80 to 0)
-  peakLevel: number;       // 0.0 to 1.0
-  peakDbfs: number;        // dBFS (-80 to 0)
+  rmsLevel: number;
+  rmsDbfs: number;
+  peakLevel: number;
+  peakDbfs: number;
   isClipping: boolean;
   bands: CalibratedBand[];
   speechState: 'silence' | 'speech' | 'music';
   spectralCentroidHz: number;
-  speechConfidence: number; // 0 to 100%
+  speechConfidence: number;
   channelCount: number;
+}
+
+interface PrecomputedAcousticTrack {
+  fps: number;
+  sampleRate: number;
+  fftSize: number;
+  binCount: number;
+  frameCount: number;
+  spectra: Uint8Array;
+  rms: Float32Array;
+  peak: Float32Array;
 }
 
 let audioCtx: AudioContext | null = null;
 let analyserNode: AnalyserNode | null = null;
-let mediaSourceMap = new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>();
+let activeAudioElement: HTMLAudioElement | null = null;
+const mediaSourceMap = new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>();
+const attachedPlayHandlers = new WeakMap<HTMLAudioElement, () => void>();
+
 let frequencyBuffer: Uint8Array | null = null;
 let timeDomainBuffer: Float32Array | null = null;
+let precomputedTrack: PrecomputedAcousticTrack | null = null;
+let interpolatedSpectrumBuf: Uint8Array | null = null;
 
-let smoothedRMS: number = 0;
-let smoothedPeak: number = 0;
-let lastClippingTime: number = 0;
+let smoothedRMS = 0;
+let smoothedPeak = 0;
+let lastClippingTime = 0;
 
-let pcmAcousticTrack: Float32Array | null = null;
-let pcmSampleRate: number = 16000;
-
-/**
- * Pre-computes real PCM acoustic frames from raw audio samples for cross-platform visualizer sync
- * (particularly iOS Safari WebKit where MediaElementAudioSourceNode can return zeroes).
- */
-export function buildAcousticTrackFromPCM(audioData: Float32Array, sampleRate: number = 16000): void {
-  if (!audioData || audioData.length === 0) return;
-  pcmSampleRate = sampleRate;
-  // Compute RMS envelope downsampled to ~50 frames per second (e.g. 320 samples per frame at 16kHz)
-  const hopSize = Math.max(1, Math.round(sampleRate / 50));
-  const frameCount = Math.ceil(audioData.length / hopSize);
-  const frames = new Float32Array(frameCount);
-  for (let i = 0; i < frameCount; i++) {
-    const start = i * hopSize;
-    const end = Math.min(audioData.length, start + hopSize);
-    let sum = 0;
-    for (let j = start; j < end; j++) {
-      sum += audioData[j] * audioData[j];
-    }
-    frames[i] = Math.min(1.0, Math.sqrt(sum / (end - start || 1)) * 3.5);
-  }
-  pcmAcousticTrack = frames;
-}
-
-export function getPCMAcousticFrame(currentTimeSec: number): number {
-  if (!pcmAcousticTrack || pcmAcousticTrack.length === 0) return 0;
-  const frameIdx = Math.floor(currentTimeSec * 50);
-  if (frameIdx < 0 || frameIdx >= pcmAcousticTrack.length) return 0;
-  return pcmAcousticTrack[frameIdx];
-}
-
-export function getPCMSampleRate(): number {
-  return pcmSampleRate;
-}
-
-// Auto-unlock AudioContext on user interaction for mobile browsers (iOS Safari, Android Chrome)
-if (typeof window !== 'undefined') {
-  const unlockAudioContext = () => {
-    if (audioCtx && audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(() => {});
-    }
-  };
-  window.addEventListener('touchstart', unlockAudioContext, { passive: true });
-  window.addEventListener('touchend', unlockAudioContext, { passive: true });
-  window.addEventListener('pointerdown', unlockAudioContext, { passive: true });
-  window.addEventListener('click', unlockAudioContext, { passive: true });
-}
-
-/**
- * Frequency range definitions for the 6 standard calibrated acoustic bands
- */
 const BAND_DEFINITIONS = [
   { id: 'sub' as const, name: 'Sub-Bass', freqRange: '20–60 Hz', minFreq: 20, maxFreq: 60 },
   { id: 'low' as const, name: 'Bass', freqRange: '60–250 Hz', minFreq: 60, maxFreq: 250 },
@@ -110,30 +62,188 @@ const BAND_DEFINITIONS = [
   { id: 'brilliance' as const, name: 'Brilliance', freqRange: '6k–20k Hz', minFreq: 6000, maxFreq: 20000 },
 ];
 
+// Unlock both 'suspended' and iOS WebKit's 'interrupted' AudioContext states
+if (typeof window !== 'undefined') {
+  const unlock = () => resumeAudioContext();
+  window.addEventListener('touchstart', unlock, { passive: true });
+  window.addEventListener('pointerdown', unlock, { passive: true });
+  window.addEventListener('click', unlock, { passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') resumeAudioContext();
+  });
+}
+
 /**
- * Initializes and connects the HTML5 Audio Element to the Web Audio Analyser.
- * Uses high-resolution FFT size 2048 by default for calibrated audio inspection.
+ * In-place Radix-2 Cooley-Tukey FFT (N must be power of 2).
  */
+function radix2FFT(re: Float32Array, im: Float32Array): void {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      const tr = re[i];
+      re[i] = re[j];
+      re[j] = tr;
+      const ti = im[i];
+      im[i] = im[j];
+      im[j] = ti;
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const half = len >> 1;
+    const angle = (-2 * Math.PI) / len;
+    const wReStep = Math.cos(angle);
+    const wImStep = Math.sin(angle);
+    for (let i = 0; i < n; i += len) {
+      let wRe = 1;
+      let wIm = 0;
+      for (let j = 0; j < half; j++) {
+        const uRe = re[i + j];
+        const uIm = im[i + j];
+        const vRe = re[i + j + half] * wRe - im[i + j + half] * wIm;
+        const vIm = re[i + j + half] * wIm + im[i + j + half] * wRe;
+        re[i + j] = uRe + vRe;
+        im[i + j] = uIm + vIm;
+        re[i + j + half] = uRe - vRe;
+        im[i + j + half] = uIm - vIm;
+        const nextWRe = wRe * wReStep - wIm * wImStep;
+        wIm = wRe * wImStep + wIm * wReStep;
+        wRe = nextWRe;
+      }
+    }
+  }
+}
+
+/**
+ * Builds a genuine 20 fps FFT + RMS/Peak timeline from decoded PCM audio.
+ * Powers real audio-reactive visualizers and telemetry on iOS Safari & fallback devices.
+ */
+export function buildAcousticTrackFromPCM(
+  pcm: Float32Array,
+  sampleRate: number = 16000,
+  fps: number = 20
+): void {
+  if (!pcm || pcm.length === 0) return;
+
+  const fftSize = 256;
+  const binCount = fftSize / 2;
+  const hopSize = Math.max(1, Math.floor(sampleRate / fps));
+  const frameCount = Math.max(1, Math.floor(pcm.length / hopSize));
+
+  const spectra = new Uint8Array(frameCount * binCount);
+  const rmsArr = new Float32Array(frameCount);
+  const peakArr = new Float32Array(frameCount);
+
+  const hann = new Float32Array(fftSize);
+  for (let i = 0; i < fftSize; i++) {
+    hann[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (fftSize - 1)));
+  }
+
+  const re = new Float32Array(fftSize);
+  const im = new Float32Array(fftSize);
+
+  for (let f = 0; f < frameCount; f++) {
+    const start = f * hopSize;
+    let sumSq = 0;
+    let peak = 0;
+
+    for (let i = 0; i < fftSize; i++) {
+      const s = start + i < pcm.length ? pcm[start + i] : 0;
+      const abs = Math.abs(s);
+      if (abs > peak) peak = abs;
+      sumSq += s * s;
+      re[i] = s * hann[i];
+      im[i] = 0;
+    }
+
+    rmsArr[f] = Math.sqrt(sumSq / fftSize);
+    peakArr[f] = peak;
+
+    radix2FFT(re, im);
+
+    const frameOffset = f * binCount;
+    for (let b = 0; b < binCount; b++) {
+      const mag = Math.sqrt(re[b] * re[b] + im[b] * im[b]) / (fftSize / 2);
+      const db = 20 * Math.log10(Math.max(mag, 0.00003));
+      const norm = Math.max(0, Math.min(1, (db - -90) / (-10 - -90)));
+      spectra[frameOffset + b] = Math.round(norm * 255);
+    }
+  }
+
+  precomputedTrack = {
+    fps,
+    sampleRate,
+    fftSize,
+    binCount,
+    frameCount,
+    spectra,
+    rms: rmsArr,
+    peak: peakArr,
+  };
+  interpolatedSpectrumBuf = new Uint8Array(binCount);
+}
+
+/**
+ * Decodes an audio Blob/File in the background to populate real acoustic frames
+ * when audio is restored from cache or transcribed on a remote server.
+ */
+export async function buildAcousticTrackFromBlob(blob: Blob): Promise<void> {
+  try {
+    const AudioCtxClass =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtxClass) return;
+
+    let ctx: AudioContext;
+    try {
+      ctx = new AudioCtxClass({ sampleRate: 16000 });
+    } catch {
+      ctx = new AudioCtxClass();
+    }
+
+    try {
+      const buf = await blob.arrayBuffer();
+      const decoded = await ctx.decodeAudioData(buf);
+      buildAcousticTrackFromPCM(decoded.getChannelData(0), decoded.sampleRate);
+    } finally {
+      ctx.close().catch(() => {});
+    }
+  } catch (err) {
+    console.warn('[AuRA] Could not pre-analyze audio blob:', err);
+  }
+}
+
+export function clearPrecomputedAcousticTrack(): void {
+  precomputedTrack = null;
+}
+
 export function attachAudioAnalyser(
   audioElement: HTMLAudioElement,
   fftSize: number = 2048
 ): AnalyserNode | null {
   if (typeof window === 'undefined') return null;
+  activeAudioElement = audioElement;
+
+  // On iOS Safari, bypass createMediaElementSource() so native playback, lock-screen controls,
+  // and Bluetooth routing never break; visualizer reads genuine precomputed PCM frames instead.
+  const hw = detectHardwareScreen();
+  if (hw.shouldBypassMediaElementWebAudio) {
+    return null;
+  }
 
   try {
     const AudioCtxClass =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-
     if (!AudioCtxClass) return null;
 
     if (!audioCtx) {
       audioCtx = new AudioCtxClass();
     }
 
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(() => {});
-    }
+    resumeAudioContext();
 
     if (!analyserNode) {
       analyserNode = audioCtx.createAnalyser();
@@ -146,24 +256,21 @@ export function attachAudioAnalyser(
     }
 
     if (!mediaSourceMap.has(audioElement)) {
-      try {
-        const source = audioCtx.createMediaElementSource(audioElement);
-        source.connect(analyserNode);
-        analyserNode.connect(audioCtx.destination);
-        mediaSourceMap.set(audioElement, source);
-      } catch (err) {
-        console.warn('[AuRA] WebAudio element source already attached:', err);
-      }
+      const source = audioCtx.createMediaElementSource(audioElement);
+      source.connect(analyserNode);
+      analyserNode.connect(audioCtx.destination);
+      mediaSourceMap.set(audioElement, source);
     }
 
-    // Auto-resume AudioContext on playback to satisfy browser autoplay policies
-    const handleAudioPlay = () => {
-      resumeAudioContext();
-    };
-    audioElement.removeEventListener('play', handleAudioPlay);
-    audioElement.removeEventListener('playing', handleAudioPlay);
+    const prevHandler = attachedPlayHandlers.get(audioElement);
+    if (prevHandler) {
+      audioElement.removeEventListener('play', prevHandler);
+      audioElement.removeEventListener('playing', prevHandler);
+    }
+    const handleAudioPlay = () => resumeAudioContext();
     audioElement.addEventListener('play', handleAudioPlay);
     audioElement.addEventListener('playing', handleAudioPlay);
+    attachedPlayHandlers.set(audioElement, handleAudioPlay);
 
     frequencyBuffer = new Uint8Array(analyserNode.frequencyBinCount);
     timeDomainBuffer = new Float32Array(analyserNode.fftSize);
@@ -175,9 +282,6 @@ export function attachAudioAnalyser(
   }
 }
 
-/**
- * Sets analyser FFT resolution dynamically based on mode or device performance.
- */
 export function setAnalysisFftSize(size: 512 | 1024 | 2048 | 4096): void {
   if (analyserNode && analyserNode.fftSize !== size) {
     analyserNode.fftSize = size;
@@ -186,44 +290,84 @@ export function setAnalysisFftSize(size: 512 | 1024 | 2048 | 4096): void {
   }
 }
 
-/**
- * Resumes audio context on user gesture (required for iOS Safari & modern browsers)
- */
 export function resumeAudioContext(): void {
-  if (audioCtx && audioCtx.state === 'suspended') {
+  if (!audioCtx) return;
+  const state = audioCtx.state as string;
+  if (state === 'suspended' || state === 'interrupted') {
     audioCtx.resume().catch(() => {});
   }
 }
 
-/**
- * Returns current actual AudioContext hardware sample rate (e.g. 44100 or 48000 Hz)
- */
 export function getAudioContextSampleRate(): number {
-  return audioCtx ? audioCtx.sampleRate : 44100;
+  if (audioCtx) return audioCtx.sampleRate;
+  if (precomputedTrack) return precomputedTrack.sampleRate;
+  return 44100;
 }
 
-/**
- * Reads live frequency data from the AnalyserNode
- */
+function getActiveSpectrumFrame(): {
+  freq: Uint8Array;
+  sampleRate: number;
+  fftSize: number;
+  rmsOverride?: number;
+  peakOverride?: number;
+} | null {
+  if (analyserNode && frequencyBuffer && audioCtx && audioCtx.state === 'running') {
+    analyserNode.getByteFrequencyData(frequencyBuffer as any);
+    let sum = 0;
+    for (let i = 0; i < frequencyBuffer.length; i++) sum += frequencyBuffer[i];
+    if (sum >= 20) {
+      return {
+        freq: frequencyBuffer,
+        sampleRate: audioCtx.sampleRate,
+        fftSize: analyserNode.fftSize,
+      };
+    }
+  }
+
+  if (precomputedTrack && interpolatedSpectrumBuf && activeAudioElement) {
+    const t = Math.max(0, activeAudioElement.currentTime || 0);
+    const exactFrame = t * precomputedTrack.fps;
+    const f0 = Math.min(precomputedTrack.frameCount - 1, Math.floor(exactFrame));
+    const f1 = Math.min(precomputedTrack.frameCount - 1, f0 + 1);
+    const frac = Math.max(0, Math.min(1, exactFrame - f0));
+
+    const bins = precomputedTrack.binCount;
+    const off0 = f0 * bins;
+    const off1 = f1 * bins;
+
+    for (let b = 0; b < bins; b++) {
+      interpolatedSpectrumBuf[b] = Math.round(
+        precomputedTrack.spectra[off0 + b] * (1 - frac) +
+          precomputedTrack.spectra[off1 + b] * frac
+      );
+    }
+
+    const rms = precomputedTrack.rms[f0] * (1 - frac) + precomputedTrack.rms[f1] * frac;
+    const peak = Math.max(precomputedTrack.peak[f0], precomputedTrack.peak[f1]);
+
+    return {
+      freq: interpolatedSpectrumBuf,
+      sampleRate: precomputedTrack.sampleRate,
+      fftSize: precomputedTrack.fftSize,
+      rmsOverride: rms,
+      peakOverride: peak,
+    };
+  }
+
+  return null;
+}
+
 export function getLiveFrequencyData(): Uint8Array | null {
-  if (!analyserNode || !frequencyBuffer) return null;
-  analyserNode.getByteFrequencyData(frequencyBuffer as any);
-  return frequencyBuffer;
+  const frame = getActiveSpectrumFrame();
+  return frame ? frame.freq : null;
 }
 
-/**
- * Reads live time-domain sample waveform data for true RMS and peak metering
- */
 export function getLiveTimeDomainData(): Float32Array | null {
-  if (!analyserNode || !timeDomainBuffer) return null;
+  if (!analyserNode || !timeDomainBuffer || !audioCtx || audioCtx.state !== 'running') return null;
   analyserNode.getFloatTimeDomainData(timeDomainBuffer as any);
   return timeDomainBuffer;
 }
 
-/**
- * Computes true time-domain RMS and Peak levels (in 0.0-1.0 and dBFS).
- * Derived from genuine audio sample amplitudes, not frequency estimates.
- */
 export function getTrueLoudnessLevels(): {
   rmsLevel: number;
   rmsDbfs: number;
@@ -231,8 +375,35 @@ export function getTrueLoudnessLevels(): {
   peakDbfs: number;
   isClipping: boolean;
 } {
+  let rawRms = 0;
+  let peak = 0;
+  let hasData = false;
+
   const timeData = getLiveTimeDomainData();
-  if (!timeData || timeData.length === 0) {
+  if (timeData && timeData.length > 0) {
+    let sumSquares = 0;
+    for (let i = 0; i < timeData.length; i++) {
+      const val = timeData[i];
+      const absVal = Math.abs(val);
+      if (absVal > peak) peak = absVal;
+      sumSquares += val * val;
+    }
+    rawRms = Math.sqrt(sumSquares / timeData.length);
+    if (peak > 0.0001) hasData = true;
+  }
+
+  if (!hasData) {
+    const frame = getActiveSpectrumFrame();
+    if (frame && frame.rmsOverride !== undefined && frame.peakOverride !== undefined) {
+      rawRms = frame.rmsOverride;
+      peak = frame.peakOverride;
+      hasData = true;
+    }
+  }
+
+  if (!hasData) {
+    smoothedRMS *= 0.85;
+    smoothedPeak *= 0.85;
     return {
       rmsLevel: 0,
       rmsDbfs: -90,
@@ -242,31 +413,14 @@ export function getTrueLoudnessLevels(): {
     };
   }
 
-  let sumSquares = 0;
-  let peak = 0;
-  const len = timeData.length;
-
-  for (let i = 0; i < len; i++) {
-    const val = timeData[i];
-    const absVal = Math.abs(val);
-    if (absVal > peak) peak = absVal;
-    sumSquares += val * val;
-  }
-
-  const rawRms = Math.sqrt(sumSquares / len);
-
-  // Ballistics smoothing
-  smoothedRMS = smoothedRMS * 0.75 + rawRms * 0.25;
-  smoothedPeak = Math.max(peak, smoothedPeak * 0.92);
+  smoothedRMS = smoothedRMS * 0.72 + rawRms * 0.28;
+  smoothedPeak = Math.max(peak, smoothedPeak * 0.9);
 
   const rmsDbfs = 20 * Math.log10(Math.max(smoothedRMS, 0.00003));
   const peakDbfs = 20 * Math.log10(Math.max(smoothedPeak, 0.00003));
 
-  const isClippingNow = peak >= 0.995;
-  if (isClippingNow) {
-    lastClippingTime = Date.now();
-  }
-  const isClipping = Date.now() - lastClippingTime < 1500; // Hold clipping indicator 1.5s
+  if (peak >= 0.995) lastClippingTime = Date.now();
+  const isClipping = Date.now() - lastClippingTime < 1500;
 
   return {
     rmsLevel: Math.min(1.0, smoothedRMS),
@@ -277,75 +431,26 @@ export function getTrueLoudnessLevels(): {
   };
 }
 
-/**
- * 1. LISTENING VISUALIZER BARS
- * Lightweight, aesthetic frequency representation mapped logarithmically across audible bands.
- * Never synthesizes fake bars when audio is silent or unattached.
- */
 export function getVisualizerBars(
   barCount: number = 36,
   isPlaying: boolean = false
 ): { bars: Float32Array; isSignalPresent: boolean } {
   const bars = new Float32Array(barCount);
+  if (!isPlaying) return { bars, isSignalPresent: false };
 
-  if (!isPlaying) {
-    return { bars, isSignalPresent: false };
-  }
+  const frame = getActiveSpectrumFrame();
+  if (!frame) return { bars, isSignalPresent: false };
 
-  const rawFreq = getLiveFrequencyData();
-  const sampleRate = getAudioContextSampleRate();
+  const { freq: rawFreq, sampleRate } = frame;
+  const binCount = rawFreq.length;
+  const binWidth = sampleRate / 2 / binCount;
 
-  // If live frequency buffer is not yet ready or silent on mobile WebKit,
-  // provide rich, responsive acoustic cadence so mobile visualizers are never flat/frozen
-  if (!rawFreq) {
-    const t = performance.now() * 0.001;
-    const speechCadence = Math.sin(t * 3.6) * 0.28 + Math.cos(t * 2.1) * 0.22 + 0.5;
-    const bassPulse = Math.pow(Math.max(0, Math.sin(t * 2.4)), 3.0) * 0.85;
-
-    for (let i = 0; i < barCount; i++) {
-      const normI = i / barCount;
-      const freqWeight = Math.sin(normI * Math.PI) * 0.75 + (1 - normI) * 0.45;
-      const bandWave = Math.sin(t * (3.0 + normI * 4.5) + i * 0.45) * 0.25 + 0.35;
-      const ripple = i % 4 === 0 ? bassPulse * 0.45 : 0;
-      bars[i] = Math.min(1.0, Math.max(0.12, (speechCadence * freqWeight + bandWave * 0.4 + ripple) * 0.95));
-    }
-    return { bars, isSignalPresent: true };
-  }
-
-  const binCount = rawFreq.length; // e.g. 1024 bins
-  const binWidth = (sampleRate / 2) / binCount;
-
-  // Verify whether real audio energy is currently passing through
-  let sum = 0;
-  for (let i = 0; i < binCount; i++) {
-    sum += rawFreq[i];
-  }
-
-  if (sum < 35) {
-    // If Web Audio Analyser is returning zeroes (e.g. mobile Safari WebKit MediaElement restrictions),
-    // synthesize vibrant organic speech & music cadence so mobile visualizers react dynamically to playback
-    const t = performance.now() * 0.001;
-    const speechCadence = Math.sin(t * 3.6) * 0.28 + Math.cos(t * 2.1) * 0.22 + 0.5;
-    const bassPulse = Math.pow(Math.max(0, Math.sin(t * 2.4)), 3.0) * 0.85;
-
-    for (let i = 0; i < barCount; i++) {
-      const normI = i / barCount;
-      const freqWeight = Math.sin(normI * Math.PI) * 0.75 + (1 - normI) * 0.45;
-      const bandWave = Math.sin(t * (3.0 + normI * 4.5) + i * 0.45) * 0.25 + 0.35;
-      const ripple = i % 4 === 0 ? bassPulse * 0.45 : 0;
-      bars[i] = Math.min(1.0, Math.max(0.12, (speechCadence * freqWeight + bandWave * 0.4 + ripple) * 0.95));
-    }
-    return { bars, isSignalPresent: true };
-  }
-
-  // Map audible range 60 Hz to 14,000 Hz logarithmically into barCount bars
   const minFreq = 60;
   const maxFreq = Math.min(14000, sampleRate / 2);
 
   for (let i = 0; i < barCount; i++) {
     const f0 = minFreq * Math.pow(maxFreq / minFreq, i / barCount);
     const f1 = minFreq * Math.pow(maxFreq / minFreq, (i + 1) / barCount);
-
     const bStart = Math.max(0, Math.floor(f0 / binWidth));
     const bEnd = Math.min(binCount - 1, Math.max(bStart + 1, Math.ceil(f1 / binWidth)));
 
@@ -357,7 +462,6 @@ export function getVisualizerBars(
     }
 
     const avg = count > 0 ? energy / count : 0;
-    // Gentle perceptual boost for presence
     const perceptualBoost = 0.9 + 0.25 * Math.sin((i / barCount) * Math.PI);
     bars[i] = Math.min(1.0, Math.max(0.0, Math.pow((avg / 240) * perceptualBoost, 1.12)));
   }
@@ -365,11 +469,6 @@ export function getVisualizerBars(
   return { bars, isSignalPresent: true };
 }
 
-/**
- * 2. CALIBRATED AUDIO SPECTRUM (Professional Frequency Inspection)
- * Maps bins strictly by AudioContext.sampleRate / fftSize.
- * Returns exact center frequencies and real dB values for each band.
- */
 export function getCalibratedSpectrum(
   barCount: number = 32,
   isPlaying: boolean = false
@@ -383,42 +482,30 @@ export function getCalibratedSpectrum(
   const frequencies: number[] = new Array(barCount);
   const dbLevels: number[] = new Array(barCount);
 
-  const sampleRate = getAudioContextSampleRate();
-  const binCount = analyserNode ? analyserNode.frequencyBinCount : 1024;
-  const binWidth = (sampleRate / 2) / binCount;
+  const frame = isPlaying ? getActiveSpectrumFrame() : null;
+  const sampleRate = frame ? frame.sampleRate : getAudioContextSampleRate();
+  const binCount = frame ? frame.freq.length : analyserNode ? analyserNode.frequencyBinCount : 1024;
+  const binWidth = sampleRate / 2 / binCount;
 
   const minFreq = 25;
   const maxFreq = Math.min(20000, sampleRate / 2);
 
-  // Precompute exact center frequencies for the bands
   for (let i = 0; i < barCount; i++) {
-    const fCenter = minFreq * Math.pow(maxFreq / minFreq, (i + 0.5) / barCount);
-    frequencies[i] = Math.round(fCenter);
+    frequencies[i] = Math.round(minFreq * Math.pow(maxFreq / minFreq, (i + 0.5) / barCount));
     dbLevels[i] = -90;
   }
 
-  if (!isPlaying) {
+  if (!isPlaying || !frame) {
     return { bars, frequencies, dbLevels, isSignalPresent: false };
   }
 
-  const rawFreq = getLiveFrequencyData();
-  if (!rawFreq) {
-    return { bars, frequencies, dbLevels, isSignalPresent: false };
-  }
-
-  let totalEnergy = 0;
-  for (let i = 0; i < binCount; i++) {
-    totalEnergy += rawFreq[i];
-  }
-
-  if (totalEnergy < 35) {
-    return { bars, frequencies, dbLevels, isSignalPresent: false };
-  }
+  const rawFreq = frame.freq;
+  const minDb = analyserNode?.minDecibels ?? -90;
+  const maxDb = analyserNode?.maxDecibels ?? -10;
 
   for (let i = 0; i < barCount; i++) {
     const f0 = minFreq * Math.pow(maxFreq / minFreq, i / barCount);
     const f1 = minFreq * Math.pow(maxFreq / minFreq, (i + 1) / barCount);
-
     const bStart = Math.max(0, Math.floor(f0 / binWidth));
     const bEnd = Math.min(binCount - 1, Math.max(bStart + 1, Math.ceil(f1 / binWidth)));
 
@@ -432,71 +519,49 @@ export function getCalibratedSpectrum(
     const avg = count > 0 ? energy / count : 0;
     const normalized = Math.min(1.0, Math.max(0.0, avg / 255));
     bars[i] = normalized;
-
-    // Convert raw 0-255 to dBFS scale based on analyser min/max decibels (-90 to -10)
-    const minDb = analyserNode?.minDecibels ?? -90;
-    const maxDb = analyserNode?.maxDecibels ?? -10;
     dbLevels[i] = Math.round(minDb + normalized * (maxDb - minDb));
   }
 
   return { bars, frequencies, dbLevels, isSignalPresent: true };
 }
 
-/**
- * 3. FULL AUDIO TELEMETRY & SPEECH ACTIVITY (VAD)
- * Calculates calibrated acoustic frequency divisions, true loudness, and voice state.
- */
 export function getAudioTelemetry(isPlaying: boolean = false): AudioAnalysisTelemetry {
-  const sampleRate = getAudioContextSampleRate();
-  const fftSize = analyserNode ? analyserNode.fftSize : 2048;
-  const binCount = analyserNode ? analyserNode.frequencyBinCount : 1024;
-  const binWidthHz = Math.round(((sampleRate / 2) / binCount) * 10) / 10;
+  const frame = isPlaying ? getActiveSpectrumFrame() : null;
+  const sampleRate = frame ? frame.sampleRate : getAudioContextSampleRate();
+  const fftSize = frame ? frame.fftSize : analyserNode ? analyserNode.fftSize : 2048;
+  const binCount = frame ? frame.freq.length : analyserNode ? analyserNode.frequencyBinCount : 1024;
+  const binWidthHz = Math.round((sampleRate / 2 / binCount) * 10) / 10;
 
   const loudness = getTrueLoudnessLevels();
-  const rawFreq = getLiveFrequencyData();
+  const rawFreq = frame ? frame.freq : null;
+  const isSignalAvailable = Boolean(isPlaying && rawFreq && loudness.rmsLevel > 0.002);
 
-  const isSignalAvailable = Boolean(
-    isPlaying &&
-    rawFreq &&
-    loudness.rmsLevel > 0.004 &&
-    audioCtx &&
-    audioCtx.state === 'running'
-  );
+  const minDb = analyserNode?.minDecibels ?? -90;
+  const maxDb = analyserNode?.maxDecibels ?? -10;
 
-  // Calibrated 6 Acoustic Bands Calculation
   const bands: CalibratedBand[] = BAND_DEFINITIONS.map((def) => {
-    if (!isSignalAvailable || !rawFreq) {
-      return {
-        ...def,
-        amplitude: 0,
-        db: -90,
-      };
+    if (!isSignalAvailable || !rawFreq || def.minFreq >= sampleRate / 2) {
+      return { ...def, amplitude: 0, db: -90 };
     }
-
     const bStart = Math.max(0, Math.floor(def.minFreq / binWidthHz));
-    const bEnd = Math.min(binCount - 1, Math.max(bStart + 1, Math.ceil(def.maxFreq / binWidthHz)));
-
+    const bEnd = Math.min(
+      binCount - 1,
+      Math.max(bStart + 1, Math.ceil(Math.min(def.maxFreq, sampleRate / 2) / binWidthHz))
+    );
     let energy = 0;
     let count = 0;
     for (let b = bStart; b <= bEnd && b < binCount; b++) {
       energy += rawFreq[b];
       count++;
     }
-
-    const avg = count > 0 ? energy / count : 0;
-    const amplitude = Math.min(1.0, Math.max(0.0, avg / 255));
-    const minDb = analyserNode?.minDecibels ?? -90;
-    const maxDb = analyserNode?.maxDecibels ?? -10;
-    const db = Math.round(minDb + amplitude * (maxDb - minDb));
-
+    const amplitude = count > 0 ? Math.min(1.0, Math.max(0.0, energy / count / 255)) : 0;
     return {
       ...def,
       amplitude,
-      db,
+      db: Math.round(minDb + amplitude * (maxDb - minDb)),
     };
   });
 
-  // Spectral Centroid & Voice Activity Detection (VAD)
   let spectralCentroidHz = 0;
   let speechState: 'silence' | 'speech' | 'music' = 'silence';
   let speechConfidence = 0;
@@ -513,23 +578,16 @@ export function getAudioTelemetry(isPlaying: boolean = false): AudioAnalysisTele
       numSum += freq * mag;
       denSum += mag;
       totalSpectrumEnergy += mag;
-
-      // Vocal fundamental & formant range: 250 Hz to 3500 Hz
-      if (freq >= 250 && freq <= 3500) {
-        vocalRangeEnergy += mag;
-      }
+      if (freq >= 250 && freq <= 3500) vocalRangeEnergy += mag;
     }
 
-    if (denSum > 0) {
-      spectralCentroidHz = Math.round(numSum / denSum);
-    }
-
+    if (denSum > 0) spectralCentroidHz = Math.round(numSum / denSum);
     const vocalRatio = totalSpectrumEnergy > 0 ? vocalRangeEnergy / totalSpectrumEnergy : 0;
 
     if (loudness.rmsDbfs < -50) {
       speechState = 'silence';
       speechConfidence = 95;
-    } else if (vocalRatio >= 0.52 && spectralCentroidHz >= 400 && spectralCentroidHz <= 3500) {
+    } else if (vocalRatio >= 0.5 && spectralCentroidHz >= 350 && spectralCentroidHz <= 3500) {
       speechState = 'speech';
       speechConfidence = Math.min(98, Math.round(vocalRatio * 100));
     } else {
