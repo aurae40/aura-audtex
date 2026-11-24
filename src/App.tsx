@@ -47,6 +47,11 @@ import {
   getRecordingSessionById,
   updateSessionAnnotations,
 } from './services/sessionLibraryService';
+import {
+  analyzeRecordingAdaptive,
+  buildExtractiveAnalysis,
+  type AnalysisLens,
+} from './services/cognitiveEngineService';
 import { Header } from './components/Header';
 import { BookReader } from './components/BookReader';
 import { InsightsDrawer } from './components/InsightsDrawer';
@@ -526,6 +531,61 @@ export function App() {
   const [bookTitle, setBookTitle] = useState<string>('Spatial Audio Codex');
   const [chapterTitle, setChapterTitle] = useState<string>('Awaiting Audio');
 
+  const [activeLens, setActiveLens] = useState<AnalysisLens>('codex');
+  const [isAnalyzingCognitive, setIsAnalyzingCognitive] = useState(false);
+  const [analysisEngineLabel, setAnalysisEngineLabel] = useState<string>(
+    'On-Device Verbatim BM25 (Offline)'
+  );
+
+  const runCognitiveAnalysis = async (
+    targetTokens: WordToken[],
+    targetDuration: number,
+    targetTitle: string,
+    lens: AnalysisLens = activeLens,
+    sessionIdOverride?: string
+  ) => {
+    if (!targetTokens || targetTokens.length === 0) return;
+
+    // 1. Instant 0 ms offline grounded synthesis (permanently eliminates static placeholder text)
+    const instant = buildExtractiveAnalysis(targetTokens, targetDuration, targetTitle, lens);
+    setMarginaliaList(instant.marginalia);
+    setMilestoneDossier(instant.dossier);
+    setAnalysisEngineLabel(instant.modelLabel);
+
+    // 2. Automatically upgrade via free local Ollama GPU/CPU if reachable on server.py
+    setIsAnalyzingCognitive(true);
+    try {
+      const upgraded = await analyzeRecordingAdaptive(
+        targetTokens,
+        targetDuration,
+        targetTitle,
+        lens
+      );
+      setMarginaliaList(upgraded.marginalia);
+      setMilestoneDossier(upgraded.dossier);
+      setAnalysisEngineLabel(upgraded.modelLabel);
+
+      const targetSessionId = sessionIdOverride || currentSessionId;
+      if (targetSessionId && !targetSessionId.startsWith('session_default')) {
+        updateSessionAnnotations(targetSessionId, {
+          marginalia: upgraded.marginalia,
+          dossier: upgraded.dossier,
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('[AuRA Cognitive] Keeping instant offline synthesis:', err);
+    } finally {
+      setIsAnalyzingCognitive(false);
+    }
+  };
+
+  const handleSeekAndPlay = (timeSec: number) => {
+    handleSeek(timeSec);
+    if (!isPlaying) {
+      startPlay(false);
+    }
+  };
+
   // Live Intelligence & Real-Time Audio Capture State
   const [isLiveRecording, setIsLiveRecording] = useState(false);
   const [liveRecordingDuration, setLiveRecordingDuration] = useState(0);
@@ -772,6 +832,10 @@ export function App() {
             console.warn('Live session save error:', e)
           );
 
+          if (finalTokens.length > 0) {
+            runCognitiveAnalysis(finalTokens, finalDuration, liveTitle, activeLens, liveSessionId);
+          }
+
           setToastNotification({
             message:
               finalTokens.length > 0
@@ -932,6 +996,7 @@ export function App() {
     saveRecordingSession(sessionRecord).catch((e) =>
       console.warn('Web import session save warning:', e)
     );
+    runCognitiveAnalysis(diarized, mediaDuration, title, activeLens, sessionId);
 
     if (audioUrl) {
       fetch(audioUrl)
@@ -1466,6 +1531,8 @@ export function App() {
       };
 
       saveRecordingSession(sessionRecord).catch((e) => console.warn('Library save error:', e));
+      const finalDuration = detectedDuration;
+      runCognitiveAnalysis(activeResult.tokens, finalDuration, activeResult.title, activeLens, sessionId);
 
       // 2. Also save to cache for fingerprint matching
       saveTranscriptionToCache(file, detectedDuration, activeResult, storeAudioInVault)
@@ -1908,7 +1975,21 @@ export function App() {
             )}
 
             {activeTab === 'insights' && (
-              <InsightsDrawer marginalia={currentMarginalia} />
+              <InsightsDrawer
+                marginalia={currentMarginalia}
+                tokens={tokens}
+                duration={duration}
+                title={bookTitle}
+                language={currentLanguage}
+                activeLens={activeLens}
+                onChangeLens={setActiveLens}
+                onRunDeepAnalysis={(lens) =>
+                  runCognitiveAnalysis(tokens, duration, bookTitle, lens, currentSessionId)
+                }
+                isAnalyzing={isAnalyzingCognitive}
+                analysisEngineLabel={analysisEngineLabel}
+                onSeekAndPlay={handleSeekAndPlay}
+              />
             )}
 
             {activeTab === 'reflections' && (
@@ -2077,7 +2158,21 @@ export function App() {
                   chapterTitle={chapterTitle}
                 />
               ) : (
-                <InsightsDrawer marginalia={currentMarginalia} />
+                <InsightsDrawer
+                  marginalia={currentMarginalia}
+                  tokens={tokens}
+                  duration={duration}
+                  title={bookTitle}
+                  language={currentLanguage}
+                  activeLens={activeLens}
+                  onChangeLens={setActiveLens}
+                  onRunDeepAnalysis={(lens) =>
+                    runCognitiveAnalysis(tokens, duration, bookTitle, lens, currentSessionId)
+                  }
+                  isAnalyzing={isAnalyzingCognitive}
+                  analysisEngineLabel={analysisEngineLabel}
+                  onSeekAndPlay={handleSeekAndPlay}
+                />
               )}
             </div>
           </div>

@@ -4,6 +4,8 @@ import type {
   UserHighlight,
   UserReflection,
   SpeakerInfo,
+  Marginalia,
+  MilestoneDossier,
 } from '../types';
 import { isPhysicalMobileDevice } from './hardwareDetectionService';
 
@@ -128,6 +130,8 @@ export async function updateSessionAnnotations(
   updates: {
     highlights?: UserHighlight[];
     reflections?: UserReflection[];
+    marginalia?: Marginalia[];
+    dossier?: MilestoneDossier;
     userSummary?: string;
     lastPlaybackPositionSec?: number;
     speakers?: Record<string, SpeakerInfo>;
@@ -172,6 +176,8 @@ export async function updateSessionAnnotations(
 
         if (updates.highlights !== undefined) existing.highlights = updates.highlights;
         if (updates.reflections !== undefined) existing.reflections = updates.reflections;
+        if (updates.marginalia !== undefined) existing.marginalia = updates.marginalia;
+        if (updates.dossier !== undefined) existing.dossier = updates.dossier;
         if (updates.userSummary !== undefined) existing.userSummary = updates.userSummary;
         if (updates.speakers !== undefined) existing.speakers = updates.speakers;
         if (updates.lastPlaybackPositionSec !== undefined) {
