@@ -19,6 +19,19 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+try:
+    from ollama_engine import (
+        detect_ollama_status,
+        generate_ollama_analysis,
+        answer_question_with_ollama,
+    )
+except ImportError:
+    from backend.ollama_engine import (
+        detect_ollama_status,
+        generate_ollama_analysis,
+        answer_question_with_ollama,
+    )
+
 app = FastAPI(
     title="AuRA_AuDTEX Local Transcriber",
     description="Cross-platform offline speech-to-text with verbatim word timestamps",
@@ -548,8 +561,6 @@ class OllamaAskRequest(BaseModel):
 @app.get("/llm-status")
 async def ollama_status_endpoint():
     """Detects local Ollama availability, active host, and installed models."""
-    from ollama_engine import detect_ollama_status
-
     return await detect_ollama_status()
 
 
@@ -557,8 +568,6 @@ async def ollama_status_endpoint():
 @app.post("/analyze")
 async def ollama_analyze_endpoint(req: OllamaAnalyzeRequest):
     """Generates source-grounded Marginalia & Author Dossier using local Ollama."""
-    from ollama_engine import generate_ollama_analysis
-
     try:
         return await generate_ollama_analysis(
             title=req.title,
@@ -575,8 +584,6 @@ async def ollama_analyze_endpoint(req: OllamaAnalyzeRequest):
 @app.post("/ask")
 async def ollama_ask_endpoint(req: OllamaAskRequest):
     """Answers user question with timestamp citations grounded in retrieved audio passages."""
-    from ollama_engine import answer_question_with_ollama
-
     try:
         return await answer_question_with_ollama(
             question=req.question,
