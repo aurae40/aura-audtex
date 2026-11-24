@@ -1,10 +1,8 @@
 import type { CountryHeritage } from '../types';
 
 /**
- * SOVEREIGN FLUID PLASMA CORE (Ultra-Sleek & Edgeless)
- * Pure volumetric, ethereal organic liquid light swirling in zero gravity.
- * 100% borderless & edge-line free: no harsh vector strokes, no rigid boundaries.
- * Modern Swiss/Apple typography with refined tracking.
+ * SOVEREIGN FLUID PLASMA CORE (60 FPS Cross-Platform Edition)
+ * Zero ctx.shadowBlur stalls on iOS Safari; batched ray strokes and lightweight embers.
  */
 export function renderWavingSovereignFlag(
   ctx: CanvasRenderingContext2D,
@@ -31,48 +29,60 @@ export function renderSovereignFluidPlasma(
   bars: Float32Array | number[],
   isSignalPresent: boolean
 ) {
-  const colors = country.colors && country.colors.length > 0 ? country.colors : ['#f59e0b', '#06b6d4', '#dc2626'];
+  const colors =
+    country.colors && country.colors.length > 0 ? country.colors : ['#f59e0b', '#06b6d4', '#dc2626'];
   const numColors = colors.length;
+  const isMobile = cx < 200 || (typeof window !== 'undefined' && window.innerWidth < 768);
 
-  const isMobile = cx < 200 || (typeof window !== 'undefined' && window.innerWidth < 640);
-
-  // Base gravitational core size scaled appropriately for mobile viewports
-  const baseR = isMobile ? 42 : 72;
-  const coreR = baseR * (1 + (isSignalPresent ? bassEnergy * 0.32 : Math.sin(timeSec * 1.6) * 0.04));
+  const baseR = isMobile ? 44 : 72;
+  const energyPulse = isSignalPresent
+    ? Math.min(0.42, bassEnergy * 0.35)
+    : Math.sin(timeSec * 1.6) * 0.04;
+  const coreR = baseR * (1 + energyPulse);
 
   ctx.save();
+  // Never run software shadowBlur inside real-time mobile canvas loops
+  ctx.shadowBlur = 0;
 
-  // 1. Edgeless Volumetric Nebula Cloud (Soft ambient light pool in authentic flag colors)
-  const maxSpan = isMobile ? 160 : Math.max(240, baseR * 3.6);
-  const nebulaGlow = ctx.createRadialGradient(cx, cy, 10, cx, cy, maxSpan);
-  nebulaGlow.addColorStop(0, `${colors[0]}35`);
-  if (numColors > 1) nebulaGlow.addColorStop(0.38, `${colors[1]}28`);
-  if (numColors > 2) nebulaGlow.addColorStop(0.68, `${colors[2]}18`);
+  // 1. Volumetric Ambient Nebula Cloud
+  const maxSpan = isMobile ? 145 : Math.max(240, baseR * 3.5);
+  const nebulaGlow = ctx.createRadialGradient(cx, cy, 8, cx, cy, maxSpan);
+  nebulaGlow.addColorStop(0, `${colors[0]}38`);
+  if (numColors > 1) nebulaGlow.addColorStop(0.4, `${colors[1]}28`);
+  if (numColors > 2) nebulaGlow.addColorStop(0.7, `${colors[2]}18`);
   nebulaGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
   ctx.fillStyle = nebulaGlow;
   ctx.fillRect(cx - maxSpan, cy - maxSpan, maxSpan * 2, maxSpan * 2);
 
-  // 2. Pure Volumetric Liquid Plasma Tendrils (NO STROKE LINES, NO HARSH EDGES)
-  // Uses soft feathered gradient fills with additive blending for an ethereal silk-smoke appearance
+  // 2. Fluid Volumetric Plasma Ribbons
   ctx.save();
-  ctx.globalCompositeOperation = 'screen';
+  ctx.globalCompositeOperation = isMobile ? 'lighter' : 'screen';
 
-  colors.forEach((col, cIdx) => {
-    const streamAngle = (cIdx * Math.PI * 2) / numColors;
-    const speed = timeSec * (0.42 + cIdx * 0.1);
-    const audioVal = bars[(cIdx * 6 + 2) % bars.length] || 0.15;
-    const amp = (isMobile ? 16 : 24) + (isSignalPresent ? audioVal * 36 + bassEnergy * 20 : Math.sin(timeSec * 2 + cIdx) * 8);
+  const maxColorStreams = isMobile ? Math.min(3, numColors) : numColors;
+  const layers = isMobile ? 1 : 2;
+  const steps = isMobile ? 28 : 56;
 
-    // Multi-layered soft fluid volumes
-    const layers = isMobile ? 2 : 3;
+  for (let cIdx = 0; cIdx < maxColorStreams; cIdx++) {
+    const col = colors[cIdx];
+    const streamAngle = (cIdx * Math.PI * 2) / maxColorStreams;
+    const speed = timeSec * (0.45 + cIdx * 0.1);
+    const audioVal = bars.length > 0 ? bars[(cIdx * 6 + 2) % bars.length] || 0.12 : 0.12;
+    const amp =
+      (isMobile ? 15 : 24) +
+      (isSignalPresent ? audioVal * 34 + bassEnergy * 18 : Math.sin(timeSec * 2 + cIdx) * 7);
+
+    const grad = ctx.createRadialGradient(cx, cy, coreR * 0.35, cx, cy, coreR + amp + 26);
+    grad.addColorStop(0, `${col}10`);
+    grad.addColorStop(0.48, `${col}42`);
+    grad.addColorStop(0.78, `${col}1c`);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+
     for (let l = 0; l < layers; l++) {
       ctx.beginPath();
-      const phase = (l * Math.PI * 2) / layers;
-      const steps = isMobile ? 36 : 64;
-
+      const phase = (l * Math.PI * 2) / Math.max(1, layers);
       for (let i = 0; i <= steps; i++) {
         const theta = (i / steps) * Math.PI * 2;
-        // Harmonic smooth fluid curvature
         const wave =
           Math.sin(theta * 3 + speed + phase + streamAngle) * (amp * 0.5) +
           Math.cos(theta * 4 - speed * 0.8 + cIdx) * (amp * 0.3) +
@@ -81,146 +91,114 @@ export function renderSovereignFluidPlasma(
         const r = coreR + wave + l * 14;
         const px = cx + Math.cos(theta) * r;
         const py = cy + Math.sin(theta) * r;
-
         if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
       ctx.closePath();
-
-      // Soft feathered radial fill - COMPLETELY EDGELESS, NO STROKE
-      const grad = ctx.createRadialGradient(cx, cy, coreR * 0.35, cx, cy, coreR + amp + 30);
-      grad.addColorStop(0, `${col}12`);
-      grad.addColorStop(0.45, `${col}45`);
-      grad.addColorStop(0.75, `${col}22`);
-      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = grad;
       ctx.fill();
     }
-  });
+  }
   ctx.restore();
 
-  // 3. Floating Zero-Gravity Luminous Embers & Droplets (Soft, borderless pearls)
+  // 3. Zero-Gravity Luminous Embers (Two-pass solid alpha fills — zero per-ember gradient churn)
   ctx.save();
-  const emberCount = isMobile ? 14 : 24;
+  const emberCount = isMobile ? 10 : 20;
   for (let e = 0; e < emberCount; e++) {
-    const colIdx = e % numColors;
-    const col = colors[colIdx];
+    const col = colors[e % numColors];
     const orbitSpeed = (timeSec * 0.28 + e * 0.18) * (e % 2 === 0 ? 1 : -1);
-    const audioVal = bars[(e * 3) % bars.length] || 0.1;
-    const orbitDist = coreR * 1.25 + (e % 5) * 18 + (isSignalPresent ? audioVal * 30 + bassEnergy * 22 : Math.sin(timeSec * 1.4 + e) * 10);
+    const audioVal = bars.length > 0 ? bars[(e * 3) % bars.length] || 0.1 : 0.1;
+    const orbitDist =
+      coreR * 1.22 +
+      (e % 5) * (isMobile ? 12 : 18) +
+      (isSignalPresent ? audioVal * 26 + bassEnergy * 18 : Math.sin(timeSec * 1.4 + e) * 8);
     const angle = (e / emberCount) * Math.PI * 2 + orbitSpeed;
 
     const ex = cx + Math.cos(angle) * orbitDist;
     const ey = cy + Math.sin(angle) * orbitDist * 0.85;
-    const emberR = 2.0 + (e % 3) * 1.2 + (isSignalPresent ? audioVal * 2.2 : 0);
+    const emberR = 1.8 + (e % 3) * 1.0 + (isSignalPresent ? audioVal * 2.0 : 0);
 
-    const emberGrad = ctx.createRadialGradient(ex, ey, 0, ex, ey, emberR * 2.2);
-    emberGrad.addColorStop(0, col);
-    emberGrad.addColorStop(0.5, `${col}88`);
-    emberGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
+    ctx.globalAlpha = 0.24;
+    ctx.fillStyle = col;
     ctx.beginPath();
-    ctx.arc(ex, ey, emberR * 2.2, 0, Math.PI * 2);
-    ctx.fillStyle = emberGrad;
-    ctx.globalAlpha = 0.7 + Math.sin(timeSec * 2.8 + e) * 0.25;
+    ctx.arc(ex, ey, emberR * 2.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 0.72 + Math.sin(timeSec * 2.8 + e) * 0.22;
+    ctx.beginPath();
+    ctx.arc(ex, ey, emberR, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();
 
-  // 4. Central Edgeless Obsidian Gravity Well (Deep black velvet core)
-  ctx.save();
+  // 4. Central Obsidian Gravity Well + Soft Rim Halo
   const irisR = coreR * 0.54;
+  const haloGrad = ctx.createRadialGradient(cx, cy, irisR * 0.85, cx, cy, irisR + 14);
+  haloGrad.addColorStop(0, `${country.accent}55`);
+  haloGrad.addColorStop(0.6, `${country.accent}18`);
+  haloGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, irisR + 14, 0, Math.PI * 2);
+  ctx.fillStyle = haloGrad;
+  ctx.fill();
 
   const coreGrad = ctx.createRadialGradient(cx, cy, 2, cx, cy, irisR);
   coreGrad.addColorStop(0, '#060504');
-  coreGrad.addColorStop(0.70, '#100e0c');
-  coreGrad.addColorStop(0.95, '#181614');
-  coreGrad.addColorStop(1, 'rgba(24, 22, 20, 0.85)');
-
+  coreGrad.addColorStop(0.72, '#100e0c');
+  coreGrad.addColorStop(1, '#1a1715');
   ctx.beginPath();
   ctx.arc(cx, cy, irisR, 0, Math.PI * 2);
   ctx.fillStyle = coreGrad;
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
-  ctx.shadowBlur = 30;
   ctx.fill();
 
-  // Soft, diffuse inner rim glow (NO HARSH STROKE LINE)
-  const rimGlow = ctx.createRadialGradient(cx, cy, irisR - 4, cx, cy, irisR + 6);
-  rimGlow.addColorStop(0, 'rgba(0, 0, 0, 0)');
-  rimGlow.addColorStop(0.5, `${country.accent}55`);
-  rimGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, irisR + 4, 0, Math.PI * 2);
-  ctx.fillStyle = rimGlow;
-  ctx.fill();
-
-  // Sleek Modern National Code Monogram in center
-  ctx.font = '600 17px -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", sans-serif';
+  ctx.font = `600 ${isMobile ? 14 : 17}px -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff';
-  ctx.shadowColor = country.accent;
-  ctx.shadowBlur = 12;
   ctx.fillText(country.code, cx, cy);
-  ctx.restore();
 
-  // 5. Subtle Ethereal Coronal Ray Pulse (NO HARD TICKS, soft radial rays)
-  ctx.save();
-  const rayR = coreR * 1.5;
-  const rayCount = 36;
+  // 5. Coronal Acoustic Rays (Batched per color for minimal draw calls)
+  const rayR = coreR * 1.48;
+  const rayCount = isMobile ? 24 : 36;
   const step = (Math.PI * 2) / rayCount;
+  ctx.lineWidth = isMobile ? 1.5 : 1.8;
+  ctx.lineCap = 'round';
 
-  for (let r = 0; r < rayCount; r++) {
-    const rAngle = r * step - Math.PI / 2;
-    const rVal = bars[r % bars.length] || 0.12;
-    const rLen = isSignalPresent
-      ? Math.max(3, rVal * 24 + bassEnergy * 10)
-      : Math.max(2, Math.sin(timeSec * 2.2 + r * 0.35) * 5 + 5);
-
-    const x1 = cx + Math.cos(rAngle) * rayR;
-    const y1 = cy + Math.sin(rAngle) * rayR;
-    const x2 = cx + Math.cos(rAngle) * (rayR + rLen);
-    const y2 = cy + Math.sin(rAngle) * (rayR + rLen);
-
-    const col = colors[r % numColors];
-    const rayGrad = ctx.createLinearGradient(x1, y1, x2, y2);
-    rayGrad.addColorStop(0, `${col}99`);
-    rayGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
+  for (let c = 0; c < numColors; c++) {
     ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.strokeStyle = rayGrad;
-    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = `${colors[c]}99`;
+    for (let r = c; r < rayCount; r += numColors) {
+      const rAngle = r * step - Math.PI / 2;
+      const rVal = bars.length > 0 ? bars[r % bars.length] || 0.1 : 0.1;
+      const rLen = isSignalPresent
+        ? Math.max(3, rVal * (isMobile ? 18 : 24) + bassEnergy * 9)
+        : Math.max(2, Math.sin(timeSec * 2.2 + r * 0.35) * 4 + 4);
+
+      const cos = Math.cos(rAngle);
+      const sin = Math.sin(rAngle);
+      ctx.moveTo(cx + cos * rayR, cy + sin * rayR);
+      ctx.lineTo(cx + cos * (rayR + rLen), cy + sin * (rayR + rLen));
+    }
     ctx.stroke();
   }
-  ctx.restore();
 
-  // 6. Ultra-Sleek Modern Swiss / Apple Typography (NO SERIF, NO MONOSPACE)
-  ctx.save();
+  // 6. Crisp Typography
   ctx.textAlign = 'center';
+  ctx.font = `500 ${isMobile ? 11 : 12}px -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", sans-serif`;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+  ctx.fillText(`${country.flagEmoji}  ${country.name.toUpperCase()}`, cx, cy - coreR * 1.62 - 16);
 
-  // National Header above core
-  ctx.font = '500 12px -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", sans-serif';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-  ctx.shadowBlur = 6;
-  ctx.fillText(`${country.flagEmoji}  ${country.name.toUpperCase()}`, cx, cy - coreR * 1.65 - 20);
-
-  // Subtitle below core
-  ctx.font = '500 9.5px -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", sans-serif';
+  ctx.font = `500 ${isMobile ? 8.5 : 9.5}px -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", sans-serif`;
   ctx.fillStyle = country.accent;
-  ctx.shadowColor = country.accent;
-  ctx.shadowBlur = 8;
   const symName = country.symbolName || country.name || 'Sovereign Codex';
-  ctx.fillText(`${symName.toUpperCase()} · FLUID PLASMA`, cx, cy + coreR * 1.65 + 18);
+  ctx.fillText(`${symName.toUpperCase()} · FLUID PLASMA`, cx, cy + coreR * 1.62 + 16);
 
-  // Audio Telemetry
   ctx.font = '400 8.5px -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", sans-serif';
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
-  ctx.shadowBlur = 0;
-  ctx.fillText('48kHz Lossless · Sovereign Acoustic Core', cx, cy + coreR * 1.65 + 32);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+  ctx.fillText(
+    isSignalPresent ? 'Live Acoustic Sync · Sovereign Core' : 'Standby · Sovereign Acoustic Core',
+    cx,
+    cy + coreR * 1.62 + 30
+  );
 
   ctx.restore();
 }
