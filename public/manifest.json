@@ -1,12 +1,13 @@
 {
-  "name": "AuRA_AuDTEX — The Illuminated Audio Transcriber",
-  "short_name": "AuRA_AuDTEX",
-  "description": "The Illuminated Audio Transcriber & Cognitive Copilot with Offline Faster-Whisper",
+  "name": "AuRA_AuDTEX — Illuminated Audio Codex",
+  "short_name": "AuRA",
+  "description": "Cross-platform GPU/offline AI audio transcriber, cognitive synthesizer, and spatial reading codex.",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "orientation": "any",
-  "background_color": "#080706",
-  "theme_color": "#d97706",
+  "orientation": "portrait-primary",
+  "background_color": "#090807",
+  "theme_color": "#090807",
   "icons": [
     {
       "src": "./favicon.svg",
@@ -14,5 +15,35 @@
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "share_target": {
+    "action": "./share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "audio",
+          "accept": [
+            "audio/*",
+            ".mp3",
+            ".m4a",
+            ".m4b",
+            ".wav",
+            ".ogg",
+            ".opus",
+            ".aac",
+            ".flac",
+            ".webm",
+            ".caf",
+            ".amr",
+            ".3gp"
+          ]
+        }
+      ]
+    }
+  }
 }
