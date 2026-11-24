@@ -562,6 +562,7 @@ async def transcribe_audio(
     file: UploadFile = File(...),
     model_size: str = Query("tiny", pattern="^(tiny|base|small)$"),
     language: Optional[str] = Query(None),
+    initial_prompt: Optional[str] = Query(None),
     authorization: Optional[str] = Header(None),
 ):
     """
@@ -640,6 +641,7 @@ async def transcribe_audio(
             log_prob_threshold=-1.0,
             no_speech_threshold=0.6,
             language=language if language else None,
+            initial_prompt=initial_prompt if initial_prompt else None,
         )
         return list(segments_gen), info_obj
 
@@ -719,6 +721,7 @@ class TranscribeUrlRequest(BaseModel):
     url: str
     model_size: Optional[str] = "tiny"
     language: Optional[str] = None
+    initial_prompt: Optional[str] = None
 
 
 @app.post("/transcribe-url")
@@ -799,6 +802,7 @@ async def transcribe_url_endpoint(
                     speech_pad_ms=250,
                 ),
                 language=req.language,
+                initial_prompt=req.initial_prompt if req.initial_prompt else None,
             )
             return list(segments_gen), info_obj
 

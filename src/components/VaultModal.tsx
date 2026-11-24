@@ -33,6 +33,7 @@ import {
 import type { TranscriberEngine, LocalServerStatus } from '../services/transcriptionService';
 import type { LexiconEntry, RecordingSessionSummary, WordToken, Marginalia, UserHighlight } from '../types';
 import { exportLexiconAsAnki } from '../services/lexiconService';
+import { GlobalSearchAndGlossaryPanel } from './GlobalSearchAndGlossaryPanel';
 import {
   getInstalledLanguagePacks,
   installLanguagePack,
@@ -81,7 +82,11 @@ interface VaultModalProps {
   onSaveTranscriberEngine: (engine: TranscriberEngine) => void;
   onLoadCachedCodex?: (fingerprint: string) => void;
   onLoadSession?: (sessionId: string) => void;
+  onJumpToSessionHit?: (sessionId: string, timestampSec: number, isCurrentSession?: boolean) => void;
+  onApplyGlossaryToActiveTranscript?: () => number;
+  initialTab?: 'library' | 'pdf' | 'models' | 'lexicon' | 'settings' | 'search';
   activeSession?: {
+    id?: string;
     title?: string;
     chapter?: string;
     fileName?: string;
@@ -90,6 +95,7 @@ interface VaultModalProps {
     marginalia?: Marginalia[];
     lexicon?: Record<string, LexiconEntry>;
     highlights?: UserHighlight[];
+    reflections?: any[];
     userSummary?: string;
     engineUsed?: string;
   } | null;
@@ -104,9 +110,12 @@ export const VaultModal: React.FC<VaultModalProps> = ({
   onSaveTranscriberEngine,
   onLoadCachedCodex,
   onLoadSession,
+  onJumpToSessionHit,
+  onApplyGlossaryToActiveTranscript,
+  initialTab,
   activeSession,
 }) => {
-  const [activeTab, setActiveTab] = useState<'library' | 'pdf' | 'models' | 'lexicon' | 'settings' | null>(null);
+  const [activeTab, setActiveTab] = useState<'library' | 'pdf' | 'models' | 'lexicon' | 'settings' | 'search' | null>(initialTab ?? null);
   const [isExportingPDF, setIsExportingPDF] = useState<string | null>(null);
 
   // Library State
@@ -648,6 +657,32 @@ export const VaultModal: React.FC<VaultModalProps> = ({
               <ChevronRight className="w-5 h-5 text-stone-400 group-hover:text-purple-500 dark:group-hover:text-purple-300 group-hover:translate-x-1 transition-all shrink-0 ml-3" />
             </button>
 
+            {/* 6. Global Search & Personal Glossary */}
+            <button
+              onClick={() => setActiveTab('search')}
+              className="w-full group p-3.5 sm:p-4 rounded-2xl bg-black/[0.02] dark:bg-white/[0.025] hover:bg-black/[0.05] dark:hover:bg-white/[0.06] border border-black/8 dark:border-white/8 hover:border-cyan-500/40 transition-all duration-200 flex items-center justify-between text-left cursor-pointer active:scale-[0.995] shadow-xs hover:shadow-lg hover:shadow-cyan-500/5"
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-cyan-500/20 via-cyan-600/10 to-transparent border border-cyan-500/30 flex items-center justify-center text-cyan-500 dark:text-cyan-300 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
+                  <Search className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-stone-900 dark:text-stone-100 group-hover:text-cyan-600 dark:group-hover:text-cyan-300 transition-colors">
+                      Global Search & Personal Glossary
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 tracking-wide font-mono">
+                      CTRL+K • ZERO RAM
+                    </span>
+                  </div>
+                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 font-normal truncate">
+                    Search every spoken word across all saved recordings with 1-tap jump, plus custom Whisper vocabulary bias
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-stone-400 group-hover:text-cyan-500 dark:group-hover:text-cyan-300 group-hover:translate-x-1 transition-all shrink-0 ml-3" />
+            </button>
+
             {/* Storage Footnote with Visual Progress Bar */}
             <div className="pt-3 border-t border-black/10 dark:border-white/10 flex flex-col gap-2">
               <div className="flex items-center justify-between text-xs font-sans">
@@ -747,6 +782,17 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                 >
                   <Server className="w-3 h-3" />
                   <span>Config</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('search')}
+                  className={`px-2.5 py-1 rounded-xl font-medium transition flex items-center gap-1 shrink-0 cursor-pointer ${
+                    activeTab === 'search'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold'
+                      : 'text-stone-400 hover:text-stone-200'
+                  }`}
+                >
+                  <Search className="w-3 h-3" />
+                  <span>Search & Glossary</span>
                 </button>
               </div>
             </div>
@@ -1530,6 +1576,36 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* TAB 5: GLOBAL SEARCH & PERSONAL GLOSSARY */}
+        {activeTab === 'search' && (
+          <div className="flex-1 overflow-y-auto pr-1">
+            <GlobalSearchAndGlossaryPanel
+              onJumpToSessionHit={(sessionId, timestampSec, isCurrentSession) => {
+                onClose();
+                if (onJumpToSessionHit) {
+                  onJumpToSessionHit(sessionId, timestampSec, isCurrentSession);
+                } else if (onLoadSession) {
+                  onLoadSession(sessionId);
+                }
+              }}
+              onApplyGlossaryToActiveTranscript={onApplyGlossaryToActiveTranscript}
+              activeSession={
+                activeSession && activeSession.tokens && activeSession.tokens.length > 0
+                  ? {
+                      id: activeSession.id || 'current_active_session',
+                      title: activeSession.title || 'Current Recording',
+                      chapter: activeSession.chapter || '',
+                      hasAudio: true,
+                      tokens: activeSession.tokens,
+                      highlights: activeSession.highlights,
+                      reflections: (activeSession as any).reflections,
+                    }
+                  : null
+              }
+            />
           </div>
         )}
       </>

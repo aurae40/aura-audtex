@@ -60,6 +60,8 @@ import { AuthorDossier } from './components/AuthorDossier';
 import { ConceptMap } from './components/ConceptMap';
 import { SkinsDrawer } from './components/SkinsDrawer';
 import { VaultModal } from './components/VaultModal';
+import { GlobalSearchAndGlossaryPanel } from './components/GlobalSearchAndGlossaryPanel';
+import { applyGlossaryCorrections } from './services/glossaryService';
 import { BrainwaveModal } from './components/BrainwaveModal';
 import { PlayerBar } from './components/PlayerBar';
 import { FullScreenPlayer } from './components/FullScreenPlayer';
@@ -112,6 +114,7 @@ export function App() {
   });
   const [isSkinsOpen, setIsSkinsOpen] = useState(false);
   const [isVaultOpen, setIsVaultOpen] = useState(false);
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const [isBrainwavesOpen, setIsBrainwavesOpen] = useState(false);
   const [isFullScreenOpen, setIsFullScreenOpen] = useState(false);
   const [isCountryModalOpen, setIsCountryModalOpen] = useState(false);
@@ -598,6 +601,7 @@ export function App() {
   const hasOverlayOpen =
     isFullScreenOpen ||
     isVaultOpen ||
+    isGlobalSearchOpen ||
     isSkinsOpen ||
     isBrainwavesOpen ||
     isCountryModalOpen ||
@@ -619,6 +623,8 @@ export function App() {
       pushedHistoryRef.current = false;
       if (isFullScreenOpen) {
         handleCloseFullScreen();
+      } else if (isGlobalSearchOpen) {
+        setIsGlobalSearchOpen(false);
       } else if (isWebLinkModalOpen) {
         setIsWebLinkModalOpen(false);
       } else if (isCountryModalOpen) {
@@ -638,6 +644,7 @@ export function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [
     isFullScreenOpen,
+    isGlobalSearchOpen,
     isWebLinkModalOpen,
     isCountryModalOpen,
     isVaultOpen,
@@ -651,6 +658,7 @@ export function App() {
     const handleGlobalEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (isFullScreenOpen) handleCloseFullScreen();
+        else if (isGlobalSearchOpen) setIsGlobalSearchOpen(false);
         else if (isWebLinkModalOpen) setIsWebLinkModalOpen(false);
         else if (isCountryModalOpen) setIsCountryModalOpen(false);
         else if (isVaultOpen) setIsVaultOpen(false);
@@ -664,6 +672,7 @@ export function App() {
     return () => window.removeEventListener('keydown', handleGlobalEsc);
   }, [
     isFullScreenOpen,
+    isGlobalSearchOpen,
     isWebLinkModalOpen,
     isCountryModalOpen,
     isVaultOpen,
@@ -673,6 +682,18 @@ export function App() {
     isFullscreen,
     exitFullscreen,
   ]);
+
+  // Global Ctrl+K / Cmd+K Quick Search & Glossary Shortcut
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsGlobalSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleUpdateSpeakerName = (id: string, newName: string, newColor?: string) => {
     setSpeakers((prev) => {
@@ -1671,6 +1692,34 @@ export function App() {
     }
   };
 
+  const handleJumpToSessionHit = async (sessionId: string, timestampSec: number, isCurrentSession?: boolean) => {
+    if (isCurrentSession || sessionId === currentSessionId) {
+      handleSeek(timestampSec);
+      startPlay();
+      setActiveTab('book');
+    } else {
+      await handleLoadSession(sessionId);
+      handleSeek(timestampSec);
+      startPlay();
+      setActiveTab('book');
+    }
+  };
+
+  const handleApplyGlossaryToActiveTranscript = (): number => {
+    const { tokens: updated, replacementCount } = applyGlossaryCorrections(tokens);
+    if (replacementCount > 0) {
+      setTokens(updated);
+      if (currentSessionId) {
+        updateSessionAnnotations(currentSessionId, { tokens: updated }).catch(() => {});
+      }
+      setToastNotification({
+        message: `✦ Applied glossary: ${replacementCount} ${replacementCount === 1 ? 'word' : 'words'} auto-corrected!`,
+        type: 'info',
+      });
+    }
+    return replacementCount;
+  };
+
   const handleLoadCachedByFingerprint = async (fingerprint: string) => {
     try {
       const cached = await getCachedByFingerprint(fingerprint);
@@ -2431,9 +2480,12 @@ export function App() {
           }}
           onLoadCachedCodex={handleLoadCachedByFingerprint}
           onLoadSession={handleLoadSession}
+          onJumpToSessionHit={handleJumpToSessionHit}
+          onApplyGlossaryToActiveTranscript={handleApplyGlossaryToActiveTranscript}
           activeSession={
             tokens.length > 0
               ? {
+                  id: currentSessionId || 'current_session',
                   title: bookTitle,
                   chapter: chapterTitle,
                   fileName: bookTitle,
@@ -2442,6 +2494,7 @@ export function App() {
                   marginalia: marginaliaList,
                   lexicon: accumulatedLexicon,
                   highlights: userHighlights,
+                  reflections,
                   userSummary,
                   engineUsed:
                     transcriberEngine === 'local'
@@ -2449,6 +2502,32 @@ export function App() {
                       : transcriberEngine === 'remote'
                       ? 'Remote Whisper Server'
                       : 'Browser Whisper (WASM)',
+                }
+              : null
+          }
+        />
+      )}
+
+      {/* Global Quick Search & Personal Glossary Overlay (Ctrl+K / Cmd+K) */}
+      {isGlobalSearchOpen && (
+        <GlobalSearchAndGlossaryPanel
+          isModalOverlay
+          onClose={() => setIsGlobalSearchOpen(false)}
+          onJumpToSessionHit={(sessionId, timestampSec, isCurrentSession) => {
+            setIsGlobalSearchOpen(false);
+            handleJumpToSessionHit(sessionId, timestampSec, isCurrentSession);
+          }}
+          onApplyGlossaryToActiveTranscript={handleApplyGlossaryToActiveTranscript}
+          activeSession={
+            tokens.length > 0
+              ? {
+                  id: currentSessionId || 'current_session',
+                  title: bookTitle,
+                  chapter: chapterTitle,
+                  hasAudio: !isVoiceoverMode,
+                  tokens,
+                  highlights: userHighlights,
+                  reflections,
                 }
               : null
           }

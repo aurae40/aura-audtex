@@ -6,6 +6,7 @@ import {
 } from './transcriptionService';
 import { diarizeTokens, extractSpeakerMap } from './diarizationService';
 import { isPhysicalMobileDevice } from './hardwareDetectionService';
+import { buildWhisperInitialPrompt, applyGlossaryCorrections } from './glossaryService';
 
 export interface WebAudioResult {
   title: string;
@@ -244,12 +245,17 @@ export async function resolveWebAudioOrTranscript(
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
+      const initialPrompt = buildWhisperInitialPrompt();
       const resp = await timedFetch(
         `${serverUrl}/transcribe-url`,
         {
           method: 'POST',
           headers,
-          body: JSON.stringify({ url: cleanUrl, model_size: modelSize }),
+          body: JSON.stringify({
+            url: cleanUrl,
+            model_size: modelSize,
+            initial_prompt: initialPrompt || undefined,
+          }),
         },
         180000,
         abortSignal
@@ -257,7 +263,9 @@ export async function resolveWebAudioOrTranscript(
 
       if (resp.ok) {
         const data = await resp.json();
-        const diarized = diarizeTokens(data.tokens || []);
+        const rawTokens = data.tokens || [];
+        const { tokens: corrected } = applyGlossaryCorrections(rawTokens);
+        const diarized = diarizeTokens(corrected);
         const spkMap = extractSpeakerMap(diarized);
         const audioUrl = resolveAbsoluteServerMediaUrl(serverUrl, data.audio_url);
         return {

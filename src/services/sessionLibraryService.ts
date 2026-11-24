@@ -1,6 +1,7 @@
 import type {
   RecordingSession,
   RecordingSessionSummary,
+  WordToken,
   UserHighlight,
   UserReflection,
   SpeakerInfo,
@@ -128,6 +129,7 @@ export async function saveRecordingSession(session: RecordingSession): Promise<v
 export async function updateSessionAnnotations(
   id: string,
   updates: {
+    tokens?: WordToken[];
     highlights?: UserHighlight[];
     reflections?: UserReflection[];
     marginalia?: Marginalia[];
@@ -174,6 +176,7 @@ export async function updateSessionAnnotations(
           return;
         }
 
+        if (updates.tokens !== undefined) existing.tokens = updates.tokens;
         if (updates.highlights !== undefined) existing.highlights = updates.highlights;
         if (updates.reflections !== undefined) existing.reflections = updates.reflections;
         if (updates.marginalia !== undefined) existing.marginalia = updates.marginalia;

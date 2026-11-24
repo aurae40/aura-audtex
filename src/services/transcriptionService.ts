@@ -6,6 +6,7 @@ import {
 } from './builtinWhisperService';
 import { buildAcousticTrackFromBlob } from './audioAnalyserService';
 import { isPhysicalMobileDevice } from './hardwareDetectionService';
+import { buildWhisperInitialPrompt, applyGlossaryCorrections } from './glossaryService';
 
 export type { BuiltinWhisperModel } from './builtinWhisperService';
 export { transcribeWithBuiltinWhisper, transcribeWithAcousticEngine };
@@ -264,9 +265,15 @@ export async function transcribeWithLocalServer(
   const formData = new FormData();
   formData.append('file', file);
 
+  const initialPrompt = buildWhisperInitialPrompt();
+  let transcribeEndpoint = `${base}/transcribe?model_size=${encodeURIComponent(model)}`;
+  if (initialPrompt) {
+    transcribeEndpoint += `&initial_prompt=${encodeURIComponent(initialPrompt)}`;
+  }
+
   const data = await new Promise<any>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${base}/transcribe?model_size=${encodeURIComponent(model)}`, true);
+    xhr.open('POST', transcribeEndpoint, true);
     if (token) {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     }
@@ -308,6 +315,11 @@ export async function transcribeWithLocalServer(
 
     xhr.send(formData);
   });
+
+  if (data.tokens && Array.isArray(data.tokens)) {
+    const { tokens: corrected } = applyGlossaryCorrections(data.tokens);
+    data.tokens = corrected;
+  }
 
   if (data.meta && !data.engineInfo) {
     data.engineInfo = data.meta;
@@ -380,5 +392,9 @@ export async function transcribeAudioAdaptive(
     options?.onProgress,
     options?.abortSignal
   );
+  if (result.tokens && result.tokens.length > 0) {
+    const { tokens: corrected } = applyGlossaryCorrections(result.tokens);
+    result.tokens = corrected;
+  }
   return { result, effectiveEngine: 'builtin' };
 }
