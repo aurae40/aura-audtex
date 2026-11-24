@@ -1,13 +1,64 @@
 import React, { useState } from 'react';
-import type { MilestoneDossier } from '../types';
-import { Eye, Landmark, Zap, Share2, Award, Download } from 'lucide-react';
+import type {
+  MilestoneDossier,
+  WordToken,
+  UserHighlight,
+  UserReflection,
+  LexiconEntry,
+  SpeakerInfo,
+} from '../types';
+import {
+  Eye,
+  Landmark,
+  Zap,
+  Share2,
+  Award,
+  Download,
+  Film,
+  FileText,
+  Mail,
+  GraduationCap,
+  Check,
+} from 'lucide-react';
+import {
+  exportSubtitlesSRT,
+  exportSubtitlesVTT,
+  exportMeetingBrief,
+  exportStudyCheatSheet,
+  triggerTextDownload,
+  copyTextSafe,
+} from '../services/proExportService';
+import { exportSessionToPDF } from '../services/pdfExportService';
 
 interface AuthorDossierProps {
   dossier: MilestoneDossier | null;
+  title?: string;
+  duration?: number;
+  tokens?: WordToken[];
+  highlights?: UserHighlight[];
+  reflections?: UserReflection[];
+  lexicon?: Record<string, LexiconEntry>;
+  speakers?: Record<string, SpeakerInfo>;
+  userSummary?: string;
 }
 
-export const AuthorDossier: React.FC<AuthorDossierProps> = ({ dossier }) => {
+export const AuthorDossier: React.FC<AuthorDossierProps> = ({
+  dossier,
+  title = 'AuRA Audio Session',
+  duration = 0,
+  tokens = [],
+  highlights = [],
+  reflections = [],
+  lexicon = {},
+  speakers = {},
+  userSummary = '',
+}) => {
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  const showNotice = (msg: string) => {
+    setFeedback(msg);
+    window.setTimeout(() => setFeedback(null), 4000);
+  };
 
   if (!dossier) {
     return (
@@ -16,10 +67,10 @@ export const AuthorDossier: React.FC<AuthorDossierProps> = ({ dossier }) => {
           <Award className="w-6 h-6" />
         </div>
         <h3 className="font-title text-base font-bold text-stone-200">
-          Author Dossier Standby
+          Author Dossier & Pro Export Studio
         </h3>
         <p className="text-xs text-stone-400 max-w-xs leading-relaxed">
-          The Executive Milestone Dossier synthesizes unspoken subtext and study flashcards when an audio recording is loaded.
+          Upload or record audio to synthesize the Executive Milestone Dossier and unlock 1-tap SRT/VTT subtitles, Meeting Briefs, Study Sheets, and PDF Codex exports.
         </p>
       </div>
     );
@@ -27,7 +78,7 @@ export const AuthorDossier: React.FC<AuthorDossierProps> = ({ dossier }) => {
 
   const generateMarkdown = (): string => {
     return [
-      `# Executive Milestone Dossier: Author Intent Synthesis`,
+      `# Executive Milestone Dossier: ${title}`,
       `**Trigger:** Spoken Milestone at ${dossier.timeFormatted} (Word #${dossier.wordCountTrigger}, Page ${dossier.pageNumber})`,
       `**Tone & Intent Metric:** ${dossier.subtextScore}`,
       ``,
@@ -36,7 +87,7 @@ export const AuthorDossier: React.FC<AuthorDossierProps> = ({ dossier }) => {
       `## 1. The Unspoken Subtext`,
       `> ${dossier.unspokenSubtext}`,
       ``,
-      `## 2. Core Thesis Evolution (Pages 1–${dossier.pageNumber})`,
+      `## 2. Core Thesis Evolution`,
       ...dossier.thesisSteps.map((s) => `### ${s.pages}\n${s.description}\n`),
       `## 3. Real-World Actionable Translation`,
       `${dossier.actionableBridge}`,
@@ -53,26 +104,16 @@ export const AuthorDossier: React.FC<AuthorDossierProps> = ({ dossier }) => {
   const handleExportMarkdown = async () => {
     try {
       const md = generateMarkdown();
-      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `AuRA_Author_Dossier_P${dossier.pageNumber}.md`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(md).catch(() => {});
-      }
-
-      setFeedback('✓ Dossier downloaded as .md & copied to clipboard');
-      setTimeout(() => setFeedback(null), 4000);
+      triggerTextDownload(
+        md,
+        `AuRA_Author_Dossier_P${dossier.pageNumber}.md`,
+        'text/markdown;charset=utf-8'
+      );
+      const copied = await copyTextSafe(md);
+      showNotice(copied ? 'Dossier downloaded (.md) & copied to clipboard' : 'Dossier downloaded (.md)');
     } catch (err) {
       console.error('Export error:', err);
-      setFeedback('Failed to export. Please try again.');
-      setTimeout(() => setFeedback(null), 4000);
+      showNotice('Failed to export Markdown.');
     }
   };
 
@@ -87,31 +128,90 @@ export const AuthorDossier: React.FC<AuthorDossierProps> = ({ dossier }) => {
           (c) => `${c.q}\t${c.a}\tAuRA_Dossier Page_${dossier.pageNumber}`
         ),
       ];
-      const tsv = rows.join('\n');
-      const blob = new Blob([tsv], { type: 'text/tab-separated-values;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `AuRA_Dossier_Flashcards_P${dossier.pageNumber}.tsv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      setFeedback('✓ Anki .tsv study deck downloaded');
-      setTimeout(() => setFeedback(null), 4000);
+      triggerTextDownload(
+        rows.join('\n'),
+        `AuRA_Dossier_Flashcards_P${dossier.pageNumber}.tsv`,
+        'text/tab-separated-values;charset=utf-8'
+      );
+      showNotice('Anki .tsv study deck downloaded');
     } catch (err) {
       console.error('Anki export error:', err);
-      setFeedback('Failed to export Anki cards.');
-      setTimeout(() => setFeedback(null), 4000);
+      showNotice('Failed to export Anki cards.');
+    }
+  };
+
+  const handleExportSRT = async () => {
+    if (tokens.length === 0) return showNotice('No word timestamps available for subtitles.');
+    const file = await exportSubtitlesSRT(tokens, title, {
+      includeSpeakerLabels: true,
+      speakers,
+    });
+    showNotice(`Subtitles exported: ${file}`);
+  };
+
+  const handleExportVTT = async () => {
+    if (tokens.length === 0) return showNotice('No word timestamps available for WebVTT.');
+    const file = await exportSubtitlesVTT(tokens, title, {
+      includeSpeakerLabels: true,
+      speakers,
+    });
+    showNotice(`WebVTT exported: ${file}`);
+  };
+
+  const handleExportMeeting = async () => {
+    if (tokens.length === 0) return showNotice('Load a recording first to generate a Meeting Brief.');
+    const { filename, copied } = await exportMeetingBrief({
+      title,
+      duration,
+      tokens,
+      dossier,
+      highlights,
+      reflections,
+      speakers,
+    });
+    showNotice(
+      copied ? `Meeting Brief saved (${filename}) & copied to clipboard` : `Meeting Brief saved (${filename})`
+    );
+  };
+
+  const handleExportStudySheet = async () => {
+    if (tokens.length === 0) return showNotice('Load a recording first to generate a Study Sheet.');
+    const { filename, copied } = await exportStudyCheatSheet({
+      title,
+      duration,
+      tokens,
+      dossier,
+      highlights,
+      lexicon,
+    });
+    showNotice(
+      copied ? `Study Sheet saved (${filename}) & copied to clipboard` : `Study Sheet saved (${filename})`
+    );
+  };
+
+  const handleExportPDF = async () => {
+    try {
+      await exportSessionToPDF({
+        title,
+        duration,
+        tokens,
+        highlights,
+        lexicon,
+        userSummary: userSummary || dossier.unspokenSubtext,
+        createdAt: new Date().toISOString(),
+      });
+      showNotice('Illuminated A4 PDF Codex downloaded');
+    } catch (err) {
+      console.error('PDF export error:', err);
+      showNotice('Failed to build PDF report.');
     }
   };
 
   return (
-    <div className="theme-surface flex-1 p-5 sm:p-6 overflow-y-auto space-y-4 select-none">
+    <div className="theme-surface flex-1 p-4 sm:p-6 overflow-y-auto space-y-4 select-none">
       {/* Milestone Unlocked Top Badge */}
       <div className="border-b border-stone-800 pb-3">
-        <div className="flex items-center gap-2 mb-1.5">
+        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
           <span className="px-2 py-0.5 rounded-full bg-red-950 text-red-400 border border-red-700/80 text-[9px] font-mono uppercase font-bold flex items-center gap-1">
             <Award className="w-3 h-3" />
             Milestone Synthesis (Word #{dossier.wordCountTrigger})
@@ -150,7 +250,7 @@ export const AuthorDossier: React.FC<AuthorDossierProps> = ({ dossier }) => {
       <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800 shadow-md">
         <div className="text-xs font-title font-bold text-emerald-300 mb-2 flex items-center gap-1.5">
           <Landmark className="w-3.5 h-3.5" />
-          <span>Core Thesis Evolution (Pages 1–{dossier.pageNumber})</span>
+          <span>Core Thesis Evolution</span>
         </div>
         <div className="space-y-2">
           {dossier.thesisSteps.map((step, idx) => (
@@ -176,11 +276,14 @@ export const AuthorDossier: React.FC<AuthorDossierProps> = ({ dossier }) => {
       {/* Spaced Repetition Cards */}
       <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800 shadow-md">
         <div className="text-xs font-title font-bold text-stone-200 mb-2">
-          ⚡ Spaced Repetition Recall Cards ({dossier.studyFlashcards.length})
+          Spaced Repetition Recall Cards ({dossier.studyFlashcards.length})
         </div>
         <div className="space-y-2">
           {dossier.studyFlashcards.map((card, idx) => (
-            <div key={idx} className="p-2.5 rounded-lg bg-stone-900/90 border border-stone-800 text-xs">
+            <div
+              key={idx}
+              className="p-2.5 rounded-lg bg-stone-900/90 border border-stone-800 text-xs"
+            >
               <div className="text-amber-300 font-semibold mb-1">Q: {card.q}</div>
               <div className="text-stone-400 font-book">A: {card.a}</div>
             </div>
@@ -190,28 +293,97 @@ export const AuthorDossier: React.FC<AuthorDossierProps> = ({ dossier }) => {
 
       {/* Feedback Banner */}
       {feedback && (
-        <div className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs text-center font-mono">
-          {feedback}
+        <div className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs text-center font-mono flex items-center justify-center gap-1.5 animate-in fade-in">
+          <Check className="w-3.5 h-3.5 shrink-0" />
+          <span>{feedback}</span>
         </div>
       )}
 
-      {/* Real Export Actions */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-        <button
-          onClick={handleExportMarkdown}
-          className="apple-btn-primary py-2.5 flex items-center justify-center gap-1.5 text-xs font-semibold"
-        >
-          <Download className="w-3.5 h-3.5" />
-          <span>Export Dossier (.md)</span>
-        </button>
+      {/* 1-Tap Pro Export Studio (Speech -> Finished Work) */}
+      <div className="p-4 rounded-2xl bg-stone-950 border border-amber-500/30 shadow-md space-y-2.5">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-title font-bold text-amber-300 flex items-center gap-1.5">
+            <Share2 className="w-3.5 h-3.5" />
+            <span>1-Tap Pro Export Studio</span>
+          </span>
+          <span className="text-[9.5px] font-mono text-stone-400">100% Free · Instant</span>
+        </div>
 
-        <button
-          onClick={handleExportAnki}
-          className="apple-btn-secondary py-2.5 flex items-center justify-center gap-1.5 text-xs font-semibold"
-        >
-          <Share2 className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Export Cards (Anki .tsv)</span>
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={handleExportSRT}
+            disabled={tokens.length === 0}
+            className="apple-btn-secondary py-2 px-2.5 flex items-center justify-center gap-1.5 text-[11px] font-semibold disabled:opacity-40"
+            title="Export standard SubRip (.srt) subtitles for Premiere, DaVinci, YouTube, CapCut"
+          >
+            <Film className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>Subtitles (.srt)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportVTT}
+            disabled={tokens.length === 0}
+            className="apple-btn-secondary py-2 px-2.5 flex items-center justify-center gap-1.5 text-[11px] font-semibold disabled:opacity-40"
+            title="Export WebVTT (.vtt) with native speaker voice tags"
+          >
+            <Film className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <span>WebVTT (.vtt)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportMeeting}
+            disabled={tokens.length === 0}
+            className="apple-btn-secondary py-2 px-2.5 flex items-center justify-center gap-1.5 text-[11px] font-semibold disabled:opacity-40"
+            title="Extract decisions, action items & open questions into a ready-to-send email brief"
+          >
+            <Mail className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>Meeting Brief</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportStudySheet}
+            disabled={tokens.length === 0}
+            className="apple-btn-secondary py-2 px-2.5 flex items-center justify-center gap-1.5 text-[11px] font-semibold disabled:opacity-40"
+            title="Compile thesis arc, verified definitions, quotes & recall questions"
+          >
+            <GraduationCap className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+            <span>Study Sheet</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+          <button
+            type="button"
+            onClick={handleExportPDF}
+            disabled={tokens.length === 0}
+            className="apple-btn-primary py-2 flex items-center justify-center gap-1.5 text-xs font-semibold disabled:opacity-40"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>PDF Codex</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportMarkdown}
+            className="apple-btn-secondary py-2 flex items-center justify-center gap-1.5 text-xs font-semibold"
+          >
+            <Download className="w-3.5 h-3.5 text-amber-400" />
+            <span>Dossier (.md)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportAnki}
+            className="apple-btn-secondary py-2 flex items-center justify-center gap-1.5 text-xs font-semibold"
+          >
+            <Share2 className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Anki (.tsv)</span>
+          </button>
+        </div>
       </div>
     </div>
   );

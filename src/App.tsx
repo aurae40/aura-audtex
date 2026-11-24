@@ -2065,7 +2065,17 @@ export function App() {
             )}
 
             {activeTab === 'dossier' && (
-              <AuthorDossier dossier={milestoneDossier} />
+              <AuthorDossier
+                dossier={milestoneDossier}
+                title={bookTitle}
+                duration={duration}
+                tokens={tokens}
+                highlights={userHighlights}
+                reflections={reflections}
+                lexicon={accumulatedLexicon}
+                speakers={speakers}
+                userSummary={userSummary}
+              />
             )}
 
             {activeTab === 'map' && (
@@ -2207,7 +2217,17 @@ export function App() {
                   sessionId={currentSessionId}
                 />
               ) : activeTab === 'dossier' ? (
-                <AuthorDossier dossier={milestoneDossier} />
+                <AuthorDossier
+                  dossier={milestoneDossier}
+                  title={bookTitle}
+                  duration={duration}
+                  tokens={tokens}
+                  highlights={userHighlights}
+                  reflections={reflections}
+                  lexicon={accumulatedLexicon}
+                  speakers={speakers}
+                  userSummary={userSummary}
+                />
               ) : activeTab === 'map' ? (
                 <ConceptMap
                   onSeek={handleSeek}
