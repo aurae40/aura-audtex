@@ -170,7 +170,7 @@ export const WaveformRibbon: React.FC<WaveformRibbonProps> = ({
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
         onPointerLeave={handlePointerLeave}
-        className="relative w-full h-8 sm:h-9 cursor-pointer flex items-center px-1.5 py-1 select-none touch-none overflow-visible group rounded-xl bg-black/[0.04] dark:bg-white/[0.03] border border-black/8 dark:border-white/5"
+        className="relative w-full h-8 sm:h-9 cursor-pointer flex items-center px-0.5 py-1 select-none touch-none overflow-visible group"
       >
         {/* Waveform Vertical Bars */}
         <div className="w-full h-full flex items-center justify-between gap-[1px] sm:gap-[1.5px] pointer-events-none">
