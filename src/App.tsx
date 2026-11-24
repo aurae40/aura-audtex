@@ -31,9 +31,7 @@ import {
   setStoredTranscriberEngine,
   getStoredServerUrl,
   setStoredServerUrl,
-  transcribeWithLocalServer,
-  transcribeWithBuiltinWhisper,
-  transcribeWithAcousticEngine,
+  transcribeAudioAdaptive,
   checkLocalServerHealth,
   type TranscriberEngine,
   type TranscriptionResult,
@@ -63,7 +61,11 @@ import { FullScreenPlayer } from './components/FullScreenPlayer';
 import { ImportConsentModal } from './components/ImportConsentModal';
 import { SovereignCountryModal } from './components/SovereignCountryModal';
 import { useDeviceFullscreen } from './hooks/useDeviceFullscreen';
-import { attachAudioAnalyser, resumeAudioContext } from './services/audioAnalyserService';
+import {
+  attachAudioAnalyser,
+  resumeAudioContext,
+  buildAcousticTrackFromBlob,
+} from './services/audioAnalyserService';
 import { detectSilenceGaps } from './services/waveformService';
 import { getActiveCountryHeritage, updateLockScreenMediaSession } from './services/countryService';
 import { diarizeTokens, extractSpeakerMap } from './services/diarizationService';
@@ -72,14 +74,12 @@ import {
   requestNativeFullscreenSynchronous,
   exitNativeFullscreenSynchronous,
 } from './utils/fullscreen';
-import { AlertCircle, X, Server, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, X, Server, CheckCircle2, Cpu } from 'lucide-react';
 
 function buildSessionLexicon(
   tokens: WordToken[],
   engineLexicon: Record<string, LexiconEntry> | undefined
 ): Record<string, LexiconEntry> {
-  // This makes older/local server results and browser results consistently
-  // preserve the complete recording vocabulary, not just suggested terms.
   return { ...extractTranscriptVocabulary(tokens), ...(engineLexicon || {}) };
 }
 
@@ -113,33 +113,29 @@ export function App() {
   const [activeCountry, setActiveCountry] = useState<CountryHeritage>(getActiveCountryHeritage);
 
   useEffect(() => {
-    const handleCountryChange = (e: any) => {
-      if (e.detail) setActiveCountry(e.detail);
+    const handleCountryChange = (e: Event) => {
+      const detail = (e as CustomEvent<CountryHeritage>).detail;
+      if (detail) setActiveCountry(detail);
     };
     window.addEventListener('aura-country-changed', handleCountryChange);
     return () => window.removeEventListener('aura-country-changed', handleCountryChange);
   }, []);
 
   // Universal Device Fullscreen Manager (iOS Safari, Android Chrome, Desktop, PWA)
-  const {
-    isFullscreen,
-    isIOS,
-    toggleFullscreen,
-    exitFullscreen,
-  } = useDeviceFullscreen();
+  const { isFullscreen, isIOS, toggleFullscreen, exitFullscreen } = useDeviceFullscreen();
 
   const handleToggleFullscreen = async () => {
     const res = await toggleFullscreen();
     if (res.mode === 'in-app' && isIOS) {
       setToastNotification({
         message:
-          '📱 Fullscreen Viewport Active! For 100% borderless display without Safari navigation bars, tap Share ⎋ → "Add to Home Screen".',
+          'Fullscreen Viewport Active! For 100% borderless display without Safari navigation bars, tap Share → "Add to Home Screen".',
         type: 'info',
       });
     }
   };
 
-  // Immediate Synchronous Full-Screen Launchers (Guaranteed user gesture token preservation across iOS, Android & Desktop)
+  // Immediate Synchronous Full-Screen Launchers (Preserves user gesture token across iOS, Android & Desktop)
   const handleOpenFullScreen = () => {
     resumeAudioContext();
     if (audioElementRef.current) {
@@ -228,9 +224,13 @@ export function App() {
     if (!tokens.length || isDownloadingVocabulary) return;
     setIsDownloadingVocabulary(true);
     try {
-      const download = await downloadTranscriptVocabulary(tokens, currentLanguage, (completed, total, word) => {
-        setTranscriptionStatus(`Saving definitions ${completed}/${total}: ${word}`);
-      });
+      const download = await downloadTranscriptVocabulary(
+        tokens,
+        currentLanguage,
+        (completed, total, word) => {
+          setTranscriptionStatus(`Saving definitions ${completed}/${total}: ${word}`);
+        }
+      );
       setAccumulatedLexicon((prev) => ({ ...prev, ...download.entries }));
 
       if (currentSessionId) {
@@ -242,12 +242,19 @@ export function App() {
       }
 
       setToastNotification({
-        message: `Vocabulary saved offline: ${download.verified} verified definitions from ${download.attempted} terms.${download.unresolved ? ` ${download.unresolved} terms have no available definition yet.` : ''}`,
+        message: `Vocabulary saved offline: ${download.verified} verified definitions from ${download.attempted} terms.${
+          download.unresolved
+            ? ` ${download.unresolved} terms have no available definition yet.`
+            : ''
+        }`,
         type: download.unresolved ? 'warning' : 'info',
       });
     } catch (error) {
       console.error('Vocabulary download failed:', error);
-      setToastNotification({ message: 'Vocabulary download stopped. Definitions already saved remain available offline.', type: 'warning' });
+      setToastNotification({
+        message: 'Vocabulary download stopped. Definitions already saved remain available offline.',
+        type: 'warning',
+      });
     } finally {
       setIsDownloadingVocabulary(false);
       setTranscriptionStatus('');
@@ -305,18 +312,22 @@ export function App() {
     );
   };
 
-  // Persistent Recording Session Scoping (Prevents notes/highlights leaking across audio files)
+  // Persistent Recording Session Scoping
   const [currentSessionId, setCurrentSessionId] = useState<string>('session_default');
 
   // Staged audio import file awaiting engine confirmation
   const [stagedImportFile, setStagedImportFile] = useState<File | null>(null);
   const transcriptionAbortRef = useRef<AbortController | null>(null);
 
-  // Audio Object URL Reference with Automatic Lifecycle Cleanup (Memory Leak Fix)
+  // Audio Object URL Reference with Automatic Lifecycle Cleanup
   const activeBlobUrlRef = useRef<string | null>(null);
 
   const setAudioSource = (url: string) => {
-    if (activeBlobUrlRef.current && activeBlobUrlRef.current.startsWith('blob:') && activeBlobUrlRef.current !== url) {
+    if (
+      activeBlobUrlRef.current &&
+      activeBlobUrlRef.current.startsWith('blob:') &&
+      activeBlobUrlRef.current !== url
+    ) {
       try {
         URL.revokeObjectURL(activeBlobUrlRef.current);
       } catch {
@@ -326,6 +337,7 @@ export function App() {
     activeBlobUrlRef.current = url;
     if (audioElementRef.current) {
       audioElementRef.current.src = url;
+      audioElementRef.current.load();
     }
   };
 
@@ -341,7 +353,7 @@ export function App() {
     };
   }, []);
 
-  // Scoped User Highlights State (Persisted per recording session ID)
+  // Scoped User Highlights State
   const [allHighlights, setAllHighlights] = useState<Record<string, UserHighlight[]>>(() => {
     const saved = localStorage.getItem('aura_audtex_highlights_v3');
     if (saved) {
@@ -367,10 +379,7 @@ export function App() {
     };
     setAllHighlights((prev) => {
       const updatedList = [created, ...(prev[currentSessionId] || [])];
-      const updated = {
-        ...prev,
-        [currentSessionId]: updatedList,
-      };
+      const updated = { ...prev, [currentSessionId]: updatedList };
       try {
         localStorage.setItem('aura_audtex_highlights_v3', JSON.stringify(updated));
       } catch {
@@ -386,10 +395,7 @@ export function App() {
   const handleRemoveHighlight = (id: string) => {
     setAllHighlights((prev) => {
       const updatedList = (prev[currentSessionId] || []).filter((h) => h.id !== id);
-      const updated = {
-        ...prev,
-        [currentSessionId]: updatedList,
-      };
+      const updated = { ...prev, [currentSessionId]: updatedList };
       try {
         localStorage.setItem('aura_audtex_highlights_v3', JSON.stringify(updated));
       } catch {
@@ -402,7 +408,7 @@ export function App() {
     });
   };
 
-  // Scoped User Listening Summary State (Persisted per recording session ID)
+  // Scoped User Listening Summary State
   const [allSummaries, setAllSummaries] = useState<Record<string, string>>(() => {
     const saved = localStorage.getItem('aura_audtex_summaries_v3');
     if (saved) {
@@ -434,7 +440,7 @@ export function App() {
     });
   };
 
-  // Scoped Reflections State (Persisted per recording session ID)
+  // Scoped Reflections State
   const [allReflections, setAllReflections] = useState<Record<string, UserReflection[]>>(() => {
     const saved = localStorage.getItem('aura_audtex_reflections_v3');
     if (saved) {
@@ -461,10 +467,7 @@ export function App() {
     };
     setAllReflections((prev) => {
       const updatedList = [created, ...(prev[currentSessionId] || [])];
-      const updated = {
-        ...prev,
-        [currentSessionId]: updatedList,
-      };
+      const updated = { ...prev, [currentSessionId]: updatedList };
       try {
         localStorage.setItem('aura_audtex_reflections_v3', JSON.stringify(updated));
       } catch {
@@ -480,10 +483,7 @@ export function App() {
   const handleDeleteReflection = (id: string) => {
     setAllReflections((prev) => {
       const updatedList = (prev[currentSessionId] || []).filter((r) => r.id !== id);
-      const updated = {
-        ...prev,
-        [currentSessionId]: updatedList,
-      };
+      const updated = { ...prev, [currentSessionId]: updatedList };
       try {
         localStorage.setItem('aura_audtex_reflections_v3', JSON.stringify(updated));
       } catch {
@@ -518,50 +518,7 @@ export function App() {
     setIsDarkMode((prev) => !prev);
   };
 
-  // Cancel & Return Navigation (Hardware/Browser Back Button & Gestures)
-  useEffect(() => {
-    const hasModalOrSubTab = isFullScreenOpen || isVaultOpen || isSkinsOpen || isBrainwavesOpen || activeTab !== 'book';
-    if (!hasModalOrSubTab) return;
-
-    window.history.pushState({ auraModal: true }, '');
-
-    const handlePopState = () => {
-      if (isFullScreenOpen) {
-        handleCloseFullScreen();
-      } else if (isVaultOpen) {
-        setIsVaultOpen(false);
-      } else if (isSkinsOpen) {
-        setIsSkinsOpen(false);
-      } else if (isBrainwavesOpen) {
-        setIsBrainwavesOpen(false);
-      } else if (activeTab !== 'book') {
-        setActiveTab('book');
-      }
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, [isFullScreenOpen, isVaultOpen, isSkinsOpen, isBrainwavesOpen, activeTab]);
-
-  // Global Keyboard Escape Key to Cancel / Return
-  useEffect(() => {
-    const handleGlobalEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (isFullScreenOpen) handleCloseFullScreen();
-        else if (isVaultOpen) setIsVaultOpen(false);
-        else if (isSkinsOpen) setIsSkinsOpen(false);
-        else if (isBrainwavesOpen) setIsBrainwavesOpen(false);
-        else if (activeTab !== 'book') setActiveTab('book');
-        else if (isFullscreen) exitFullscreen();
-      }
-    };
-    window.addEventListener('keydown', handleGlobalEsc);
-    return () => window.removeEventListener('keydown', handleGlobalEsc);
-  }, [isFullScreenOpen, isVaultOpen, isSkinsOpen, isBrainwavesOpen, activeTab, isFullscreen, exitFullscreen]);
-
-  // Transcriber & Audio Session State — Clean Default (No MP3 or sample data pre-loaded)
+  // Transcriber & Audio Session State
   const [tokens, setTokens] = useState<WordToken[]>([]);
   const [speakers, setSpeakers] = useState<Record<string, SpeakerInfo>>({});
   const [marginaliaList, setMarginaliaList] = useState<Marginalia[]>([]);
@@ -577,6 +534,86 @@ export function App() {
   const liveEngineRef = useRef<LiveMeetingEngine | null>(null);
   const liveDurationTimerRef = useRef<number | null>(null);
 
+  // Clean Back-Button / Swipe-Back Handling (Pushes history once per overlay session, never spams)
+  const hasOverlayOpen =
+    isFullScreenOpen ||
+    isVaultOpen ||
+    isSkinsOpen ||
+    isBrainwavesOpen ||
+    isCountryModalOpen ||
+    isWebLinkModalOpen ||
+    activeTab !== 'book';
+  const pushedHistoryRef = useRef(false);
+
+  useEffect(() => {
+    if (hasOverlayOpen && !pushedHistoryRef.current) {
+      window.history.pushState({ auraOverlay: true }, '');
+      pushedHistoryRef.current = true;
+    } else if (!hasOverlayOpen) {
+      pushedHistoryRef.current = false;
+    }
+  }, [hasOverlayOpen]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      pushedHistoryRef.current = false;
+      if (isFullScreenOpen) {
+        handleCloseFullScreen();
+      } else if (isWebLinkModalOpen) {
+        setIsWebLinkModalOpen(false);
+      } else if (isCountryModalOpen) {
+        setIsCountryModalOpen(false);
+      } else if (isVaultOpen) {
+        setIsVaultOpen(false);
+      } else if (isSkinsOpen) {
+        setIsSkinsOpen(false);
+      } else if (isBrainwavesOpen) {
+        setIsBrainwavesOpen(false);
+      } else if (activeTab !== 'book') {
+        setActiveTab('book');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [
+    isFullScreenOpen,
+    isWebLinkModalOpen,
+    isCountryModalOpen,
+    isVaultOpen,
+    isSkinsOpen,
+    isBrainwavesOpen,
+    activeTab,
+  ]);
+
+  // Global Keyboard Escape Key to Cancel / Return
+  useEffect(() => {
+    const handleGlobalEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isFullScreenOpen) handleCloseFullScreen();
+        else if (isWebLinkModalOpen) setIsWebLinkModalOpen(false);
+        else if (isCountryModalOpen) setIsCountryModalOpen(false);
+        else if (isVaultOpen) setIsVaultOpen(false);
+        else if (isSkinsOpen) setIsSkinsOpen(false);
+        else if (isBrainwavesOpen) setIsBrainwavesOpen(false);
+        else if (activeTab !== 'book') setActiveTab('book');
+        else if (isFullscreen) exitFullscreen();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalEsc);
+    return () => window.removeEventListener('keydown', handleGlobalEsc);
+  }, [
+    isFullScreenOpen,
+    isWebLinkModalOpen,
+    isCountryModalOpen,
+    isVaultOpen,
+    isSkinsOpen,
+    isBrainwavesOpen,
+    activeTab,
+    isFullscreen,
+    exitFullscreen,
+  ]);
+
   const handleUpdateSpeakerName = (id: string, newName: string, newColor?: string) => {
     setSpeakers((prev) => {
       const updated = {
@@ -588,7 +625,7 @@ export function App() {
         },
       };
       if (currentSessionId && !currentSessionId.startsWith('session_default')) {
-        updateSessionAnnotations(currentSessionId, { speakers: updated } as any).catch(() => {});
+        updateSessionAnnotations(currentSessionId, { speakers: updated }).catch(() => {});
       }
       return updated;
     });
@@ -620,39 +657,39 @@ export function App() {
           let finalAudioUrl = result.audioUrl;
           const finalDuration = Math.max(1, result.duration || liveRecordingDuration);
 
-          // If real-time recognition produced no tokens (e.g. mobile Safari speech recognition latency),
-          // transcribe the recorded audio blob with our acoustic engine so the transcript is never lost!
+          if (finalAudioBlob && finalAudioBlob.size > 0) {
+            buildAcousticTrackFromBlob(finalAudioBlob).catch(() => {});
+          }
+
+          // On iOS Safari (or browsers without Web Speech streaming), transcribe the captured
+          // audio recording via Adaptive Whisper (Server if online, else On-Device Whisper Worker)
           if (finalTokens.length === 0 && finalAudioBlob && finalAudioBlob.size > 0) {
-            setToastNotification({
-              message: 'Transcribing recorded audio with acoustic engine...',
-              type: 'info',
-            });
+            setIsTranscribing(true);
+            setTranscriptionStatus('Transcribing live recording with Whisper...');
             try {
-              const file = new File([finalAudioBlob], 'live-meeting.webm', { type: finalAudioBlob.type });
-              const transResult = await transcribeWithAcousticEngine(file, 30, (msg) => {
-                setTranscriptionStatus(msg);
+              const ext = finalAudioBlob.type.includes('mp4') ? 'm4a' : 'webm';
+              const recordedFile = new File([finalAudioBlob], `live-meeting.${ext}`, {
+                type: finalAudioBlob.type || 'audio/mp4',
               });
-              if (transResult && transResult.tokens && transResult.tokens.length > 0) {
+              const { result: transResult } = await transcribeAudioAdaptive(recordedFile, {
+                engine: 'auto',
+                builtinModel: 'whisper-tiny.en',
+                onProgress: (msg) => setTranscriptionStatus(msg),
+              });
+              if (transResult?.tokens?.length) {
                 finalTokens = diarizeTokens(transResult.tokens);
                 finalSpeakers = extractSpeakerMap(finalTokens);
               }
             } catch (err) {
-              console.warn('Acoustic fallback transcription note:', err);
+              console.warn('Live post-recording transcription note:', err);
+            } finally {
+              setIsTranscribing(false);
+              setTranscriptionStatus('');
             }
           }
 
           if (finalTokens.length > 0) {
             finalTokens = diarizeTokens(finalTokens);
-            finalSpeakers = extractSpeakerMap(finalTokens);
-          } else {
-            // Provide baseline segment so reader illuminates
-            finalTokens = [{
-              word: 'Meeting',
-              start: 0,
-              end: finalDuration,
-              index: 0,
-              speaker: 'Speaker 1',
-            }];
             finalSpeakers = extractSpeakerMap(finalTokens);
           }
 
@@ -667,7 +704,6 @@ export function App() {
             setAudioSource(finalAudioUrl);
           }
 
-          // CRITICAL FOR REPLAY: Reset playback position to 00:00 so the user can immediately replay!
           setCurrentTime(0);
           if (audioElementRef.current) {
             audioElementRef.current.currentTime = 0;
@@ -675,19 +711,23 @@ export function App() {
 
           const liveSessionId = `live_${Date.now()}`;
           setCurrentSessionId(liveSessionId);
-          const liveTitle = `Live Meeting ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+          const liveTitle = `Live Meeting ${new Date().toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}`;
           setBookTitle(liveTitle);
           setChapterTitle('Live Transcript & Speaker Diarization');
 
+          const liveExt = finalAudioBlob?.type.includes('mp4') ? 'm4a' : 'webm';
           const sessionRecord: RecordingSession = {
             id: liveSessionId,
             fingerprint: liveSessionId,
             title: liveTitle,
             chapter: 'Live Audio Diarization',
-            fileName: `${liveTitle}.webm`,
+            fileName: `${liveTitle}.${liveExt}`,
             fileSize: finalAudioBlob?.size || 0,
             duration: finalDuration,
-            mimeType: finalAudioBlob?.type || 'audio/webm',
+            mimeType: finalAudioBlob?.type || 'audio/mp4',
             createdAt: new Date().toISOString(),
             lastPlayedAt: new Date().toISOString(),
             lastPlaybackPositionSec: 0,
@@ -698,16 +738,25 @@ export function App() {
               pageNumber: 1,
               wordCountTrigger: finalTokens.length,
               audioTimestampSec: Math.round(finalDuration * 0.5),
-              timeFormatted: `${Math.floor(finalDuration / 60)}:${Math.floor(finalDuration % 60).toString().padStart(2, '0')}`,
+              timeFormatted: `${Math.floor(finalDuration / 60)}:${Math.floor(finalDuration % 60)
+                .toString()
+                .padStart(2, '0')}`,
               unspokenSubtext: 'Live meeting dialogue with speaker diarization and vocal turn tracking.',
               subtextScore: '94% Diarization Rigor',
               thesisSteps: [
                 { pages: 'Pages 1-2', description: 'Live microphone capture & pitch segmentation.' },
-                { pages: 'Pages 3-5', description: 'Real-time speech illumination and speaker classification.' },
+                {
+                  pages: 'Pages 3-5',
+                  description: 'Real-time speech illumination and speaker classification.',
+                },
               ],
-              actionableBridge: 'Reflect upon key insights from this live discussion and bookmark key takeaways.',
+              actionableBridge:
+                'Reflect upon key insights from this live discussion and bookmark key takeaways.',
               studyFlashcards: [
-                { q: 'How does live diarization partition multiple speakers?', a: 'By analyzing fundamental vocal pitch frequency (F0) and conversational silence gaps.' }
+                {
+                  q: 'How does live diarization partition multiple speakers?',
+                  a: 'By analyzing fundamental vocal pitch frequency (F0) and conversational silence gaps.',
+                },
               ],
             },
             lexicon: extractTranscriptVocabulary(finalTokens),
@@ -716,13 +765,18 @@ export function App() {
             userSummary: '',
             hasAudio: Boolean(finalAudioBlob),
             audioBlob: finalAudioBlob || undefined,
-            engineUsed: 'WebGPU Live Whisper & Web Speech',
+            engineUsed: 'Live Audio & Whisper',
           };
 
-          saveRecordingSession(sessionRecord).catch((e) => console.warn('Live session save error:', e));
+          saveRecordingSession(sessionRecord).catch((e) =>
+            console.warn('Live session save error:', e)
+          );
 
           setToastNotification({
-            message: `🎙️ Live Meeting saved! Ready to replay from 00:00 (${finalTokens.length} words across ${Object.keys(finalSpeakers).length} speaker(s)).`,
+            message:
+              finalTokens.length > 0
+                ? `Live Meeting saved! Ready to replay from 00:00 (${finalTokens.length} words across ${Object.keys(finalSpeakers).length} speaker(s)).`
+                : 'Live audio recorded and saved! Tap Play to listen.',
             type: 'info',
           });
         } catch (err: any) {
@@ -738,7 +792,12 @@ export function App() {
       setActiveTab('book');
       const startTime = Date.now();
       setLiveRecordingDuration(0);
-      setBookTitle(`Live Meeting · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+      setBookTitle(
+        `Live Meeting · ${new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        })}`
+      );
       setChapterTitle('Live Audio Diarization (Listening...)');
       setTokens([]);
       setSpeakers({
@@ -781,7 +840,7 @@ export function App() {
         }, 500);
 
         setToastNotification({
-          message: '🎙️ Live Meeting active! Speak into your microphone to illuminate words in real time.',
+          message: 'Live Meeting active! Speak into your microphone to capture and transcribe.',
           type: 'info',
         });
       } catch (err: any) {
@@ -816,11 +875,9 @@ export function App() {
     setCurrentTime(0);
     setActiveTab('book');
 
-    // Attach real audio track if present, otherwise enable Voiceover mode
     if (audioUrl) {
       setAudioSource(audioUrl);
       if (audioElementRef.current) {
-        audioElementRef.current.src = audioUrl;
         audioElementRef.current.currentTime = 0;
       }
       setIsVoiceoverMode(false);
@@ -844,21 +901,25 @@ export function App() {
       createdAt: new Date().toISOString(),
       lastPlayedAt: new Date().toISOString(),
       lastPlaybackPositionSec: 0,
-      tokens: incomingTokens,
+      tokens: diarized,
+      speakers: spkMap,
       marginalia: [],
       dossier: {
         pageNumber: 1,
-        wordCountTrigger: incomingTokens.length,
+        wordCountTrigger: diarized.length,
         audioTimestampSec: Math.round(mediaDuration * 0.5),
-        timeFormatted: `${Math.floor(mediaDuration / 60)}:${Math.floor(mediaDuration % 60).toString().padStart(2, '0')}`,
+        timeFormatted: `${Math.floor(mediaDuration / 60)}:${Math.floor(mediaDuration % 60)
+          .toString()
+          .padStart(2, '0')}`,
         unspokenSubtext: `Transcript synchronized from "${title}".`,
         subtextScore: '92% Web Link Rigor',
-        thesisSteps: [
-          { pages: 'Overview', description: 'Synchronized Web Link stream ingested.' }
-        ],
+        thesisSteps: [{ pages: 'Overview', description: 'Synchronized Web Link stream ingested.' }],
         actionableBridge: 'Review synchronized transcript terms in the Codex reader.',
         studyFlashcards: [
-          { q: 'What is the advantage of web link ingestion?', a: 'It synchronizes digital web recordings with interactive word illumination.' }
+          {
+            q: 'What is the advantage of web link ingestion?',
+            a: 'It synchronizes digital web recordings with interactive word illumination.',
+          },
         ],
       },
       lexicon: voc,
@@ -868,30 +929,38 @@ export function App() {
       hasAudio: Boolean(audioUrl),
       engineUsed: 'Web Link Transcript Importer',
     };
-    saveRecordingSession(sessionRecord).catch((e) => console.warn('Web import session save warning:', e));
+    saveRecordingSession(sessionRecord).catch((e) =>
+      console.warn('Web import session save warning:', e)
+    );
 
     if (audioUrl) {
       fetch(audioUrl)
-        .then((r) => r.blob())
+        .then((r) => (r.ok ? r.blob() : null))
         .then((blob) => {
-          updateSessionAnnotations(sessionId, { hasAudio: true, audioBlob: blob } as any).catch(() => {});
+          if (!blob) return;
+          buildAcousticTrackFromBlob(blob).catch(() => {});
+          updateSessionAnnotations(sessionId, { hasAudio: true, audioBlob: blob }).catch(() => {});
         })
         .catch((e) => console.warn('Audio stream caching note:', e));
     }
 
     setToastNotification({
       message: audioUrl
-        ? `🌐 Ingested "${title}" with Full Audio & Verbatim Timestamps!`
-        : `🌐 Imported "${title}" (${incomingTokens.length} words, AI Voiceover Ready)!`,
+        ? `Ingested "${title}" with Full Audio & Verbatim Timestamps!`
+        : `Imported "${title}" (${incomingTokens.length} words, AI Voiceover Ready)!`,
       type: 'info',
     });
   };
 
   // Transcriber Settings & Progress State
-  const [transcriberEngine, setTranscriberEngine] = useState<TranscriberEngine>(getStoredTranscriberEngine);
+  const [transcriberEngine, setTranscriberEngine] =
+    useState<TranscriberEngine>(getStoredTranscriberEngine);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcriptionStatus, setTranscriptionStatus] = useState<string>('');
-  const [toastNotification, setToastNotification] = useState<{ message: string; type: 'info' | 'warning' | 'error' } | null>(null);
+  const [toastNotification, setToastNotification] = useState<{
+    message: string;
+    type: 'info' | 'warning' | 'error';
+  } | null>(null);
 
   interface TranscriptionErrorNotice {
     file: File;
@@ -900,9 +969,10 @@ export function App() {
     storeAudioInVault: boolean;
     localServerOnline: boolean;
   }
-  const [transcriptionErrorNotice, setTranscriptionErrorNotice] = useState<TranscriptionErrorNotice | null>(null);
+  const [transcriptionErrorNotice, setTranscriptionErrorNotice] =
+    useState<TranscriptionErrorNotice | null>(null);
 
-  // Auto-detect: Use local Faster-Whisper if online on this computer; default to builtin on iPhone/remote devices
+  // Auto-detect server availability on launch
   useEffect(() => {
     const detectDefaultEngine = async () => {
       try {
@@ -922,7 +992,7 @@ export function App() {
     detectDefaultEngine();
   }, []);
 
-  // Audio Synchronization Calibration Offset (e.g. for Bluetooth delay or tempo)
+  // Audio Synchronization Calibration Offset
   const [syncOffset, setSyncOffset] = useState<number>(() => {
     const stored = localStorage.getItem('aura_sync_offset');
     return stored ? parseFloat(stored) : 0;
@@ -954,7 +1024,7 @@ export function App() {
       localStorage.setItem('aura_silence_vacuum', next.toString());
       setToastNotification({
         message: next
-          ? '⚡ Smart Silence Compression activated! Dead-air pauses are automatically trimmed.'
+          ? 'Smart Silence Compression activated! Dead-air pauses are automatically trimmed.'
           : 'Smart Silence Compression paused.',
         type: 'info',
       });
@@ -964,7 +1034,7 @@ export function App() {
 
   const effectiveTime = Math.max(0, currentTime + syncOffset);
 
-  // Audio Synchronization Loop (Throttled to ~15Hz to eliminate unnecessary 60 FPS full-app re-renders)
+  // Audio Synchronization Loop (~15Hz state updates to avoid unnecessary 60fps full-app re-renders)
   useEffect(() => {
     let animId: number;
     let lastTime = 0;
@@ -977,7 +1047,6 @@ export function App() {
           setCurrentTime(cur);
         }
 
-        // Smart Silence Compression ("Dead-Air Vacuum")
         if (isSilenceVacuumActiveRef.current && silenceGapsRef.current.length > 0) {
           const activeGap = silenceGapsRef.current.find(
             (g: { start: number; end: number }) => cur >= g.start + 0.25 && cur < g.end - 0.06
@@ -1001,7 +1070,7 @@ export function App() {
     return () => cancelAnimationFrame(animId);
   }, [isPlaying]);
 
-  // Native HTML5 Audio Event Listeners (Rock-solid playback state management)
+  // Native HTML5 Audio Event Listeners
   useEffect(() => {
     const audio = audioElementRef.current;
     if (!audio) return;
@@ -1020,11 +1089,17 @@ export function App() {
       resumeAudioContext();
     };
 
+    const handleLoadedMetadata = () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+      }
+    };
+
     const handleError = (e: Event) => {
       console.warn('[AuRA] Native audio error:', e);
       setIsPlaying(false);
       setToastNotification({
-        message: 'Audio decoding error or unsupported format. Please try another audio file.',
+        message: 'Audio decoding error or unsupported format. Try MP3, M4A, or WAV.',
         type: 'warning',
       });
     };
@@ -1032,19 +1107,21 @@ export function App() {
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('pause', handlePause);
     audio.addEventListener('play', handlePlay);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('error', handleError);
 
     return () => {
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('pause', handlePause);
       audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('error', handleError);
     };
   }, [duration]);
 
   useEffect(() => {
     if (toastNotification) {
-      const timer = setTimeout(() => setToastNotification(null), 8000);
+      const timer = setTimeout(() => setToastNotification(null), 7000);
       return () => clearTimeout(timer);
     }
   }, [toastNotification]);
@@ -1057,8 +1134,8 @@ export function App() {
     }
   }
 
-  // Session-Accurate Milestone Computation (Meaningful across any duration)
-  const milestoneTimeSec = duration > 0 ? Math.min(duration * 0.75, Math.max(15, duration - 10)) : 0;
+  const milestoneTimeSec =
+    duration > 0 ? Math.min(duration * 0.75, Math.max(15, duration - 10)) : 0;
   const milestonePercent = duration > 0 ? (milestoneTimeSec / duration) * 100 : 0;
   const pageMilestoneUnlocked = duration > 0 && currentTime >= milestoneTimeSec;
 
@@ -1071,21 +1148,21 @@ export function App() {
   // Play / Pause Toggle
   const togglePlay = () => {
     if (!isPlaying) {
-      startPlay();
+      startPlay(false);
     } else {
       pausePlay();
     }
   };
 
-  const startPlay = () => {
-    const hasAudio = Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src));
+  const startPlay = (isAutoStart: boolean = false) => {
+    const hasAudio = Boolean(
+      activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src)
+    );
     const hasTokens = tokens && tokens.length > 0;
 
     if (!hasAudio && !hasTokens) {
       return;
     }
-
-    setIsPlaying(true);
 
     if (hasAudio && !isVoiceoverMode) {
       resumeAudioContext();
@@ -1096,18 +1173,26 @@ export function App() {
         audioElementRef.current.playbackRate = playbackRate;
         const playPromise = audioElementRef.current.play();
         if (playPromise !== undefined) {
-          playPromise.catch((err) => {
-            console.warn('[AuRA] Autoplay gesture needed:', err);
-            setIsPlaying(false);
-            setToastNotification({
-              message: 'Tap anywhere to start audio (browser autoplay permission).',
-              type: 'info',
+          playPromise
+            .then(() => {
+              setIsPlaying(true);
+            })
+            .catch((err) => {
+              console.warn('[AuRA] Autoplay gesture needed:', err);
+              setIsPlaying(false);
+              if (!isAutoStart) {
+                setToastNotification({
+                  message: 'Tap Play to begin audio playback.',
+                  type: 'info',
+                });
+              }
             });
-          });
+        } else {
+          setIsPlaying(true);
         }
       }
     } else if (hasTokens) {
-      // AI Voiceover Mode (Text-to-Speech Narrator)
+      setIsPlaying(true);
       const startIndex = Math.max(0, tokens.findIndex((t) => t.start >= currentTime - 0.1));
       voiceoverManager.start(
         tokens,
@@ -1134,7 +1219,9 @@ export function App() {
 
   const handleSeek = (time: number) => {
     setCurrentTime(time);
-    const hasAudio = Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src));
+    const hasAudio = Boolean(
+      activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src)
+    );
     if (hasAudio && !isVoiceoverMode && audioElementRef.current) {
       audioElementRef.current.currentTime = time;
     } else if ((isVoiceoverMode || !hasAudio) && isPlaying && tokens.length > 0) {
@@ -1178,16 +1265,18 @@ export function App() {
       duration,
       currentTime: effectiveTime,
       isPlaying,
+      playbackRate,
       onPlay: togglePlay,
       onPause: pausePlay,
       onSeek: handleSeek,
+      onSeekBackward: handleRewind10,
+      onSeekForward: handleForward10,
     });
-  }, [activeCountry, bookTitle, chapterTitle, duration, effectiveTime, isPlaying]);
+  }, [activeCountry, bookTitle, chapterTitle, duration, effectiveTime, isPlaying, playbackRate]);
 
   const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // Clear input so selecting the same file again triggers change
     e.target.value = '';
     setStagedImportFile(file);
   };
@@ -1209,9 +1298,10 @@ export function App() {
     engine: TranscriberEngine,
     storeAudioInVault: boolean,
     customUrl?: string,
-    builtinModel: 'whisper-tiny.en' | 'whisper-base.en' = 'whisper-tiny.en'
+    builtinModel: 'whisper-tiny.en' | 'whisper-base.en' = 'whisper-tiny.en',
+    fileOverride?: File
   ) => {
-    const file = stagedImportFile;
+    const file = fileOverride || stagedImportFile;
     if (!file) return;
     setStagedImportFile(null);
     setTranscriptionErrorNotice(null);
@@ -1226,6 +1316,7 @@ export function App() {
     // 1. Prepare local audio stream and revoke prior blob URL
     const url = URL.createObjectURL(file);
     setAudioSource(url);
+    buildAcousticTrackFromBlob(file).catch(() => {});
 
     // 2. Measure audio duration with safe timeout (prevents iOS Safari metadata hanging)
     let detectedDuration = 38;
@@ -1288,77 +1379,23 @@ export function App() {
       console.warn('Vault cache lookup skipped:', cacheErr);
     }
 
-    // 4. Run explicit chosen transcription pipeline
+    // 4. Run explicit adaptive transcription pipeline
     const abortCtrl = new AbortController();
     transcriptionAbortRef.current = abortCtrl;
     setIsTranscribing(true);
-    setTranscriptionStatus('Initializing transcription pipeline...');
+    setTranscriptionStatus('Initializing adaptive transcription pipeline...');
 
     try {
-      let result: TranscriptionResult | null = null;
-      let effectiveEngine = engine;
+      const { result, effectiveEngine } = await transcribeAudioAdaptive(file, {
+        engine,
+        builtinModel,
+        serverUrl: customUrl || getStoredServerUrl(),
+        onProgress: (st) => setTranscriptionStatus(st),
+        abortSignal: abortCtrl.signal,
+      });
 
-      if (engine === 'builtin') {
-        setTranscriptionStatus('Transcribing on-device with in-browser Whisper (WebAssembly)...');
-        try {
-          result = await transcribeWithBuiltinWhisper(
-            file,
-            builtinModel,
-            (st) => setTranscriptionStatus(st),
-            abortCtrl.signal
-          );
-        } catch (builtinError: any) {
-          if (builtinError?.name === 'AbortError') throw builtinError;
-          // Infallible auto-recovery: Probe Faster-Whisper server or secure tunnel
-          let recovered = false;
-          try {
-            const serverHealth = await checkLocalServerHealth();
-            if (serverHealth.online && serverHealth.urlChecked) {
-              const activeUrl = serverHealth.urlChecked;
-              effectiveEngine = 'local';
-              setTranscriptionStatus(`Continuing with Faster-Whisper on computer (${serverHealth.gpu || 'INT8'})...`);
-              result = await transcribeWithLocalServer(file, (st) => setTranscriptionStatus(st), activeUrl, undefined, abortCtrl.signal);
-              recovered = true;
-            }
-          } catch {
-            // fallback below
-          }
-          if (!recovered) {
-            setTranscriptionStatus('Illuminating audio codex on-device...');
-            result = await transcribeWithAcousticEngine(file, 30, (st) => setTranscriptionStatus(st));
-          }
-        }
-      } else if (engine === 'local') {
-        const activeEndpoint = customUrl || getStoredServerUrl();
-        const serverHealth = await checkLocalServerHealth(activeEndpoint);
-        if (!serverHealth.online) {
-          throw new Error(
-            `Faster-Whisper engine offline at ${serverHealth.urlChecked || activeEndpoint}. Verify python backend/server.py is running.`
-          );
-        }
-        const verifiedUrl = serverHealth.urlChecked || activeEndpoint;
-        setTranscriptionStatus(`Transcribing with ${serverHealth.gpu || 'Faster-Whisper INT8'} at ${verifiedUrl}...`);
-        result = await transcribeWithLocalServer(
-          file,
-          (st) => setTranscriptionStatus(st),
-          verifiedUrl,
-          undefined,
-          abortCtrl.signal
-        );
-      } else {
-        // Remote / custom server
-        setTranscriptionStatus(`Transcribing with designated server (${customUrl || 'custom endpoint'})...`);
-        result = await transcribeWithLocalServer(
-          file,
-          (st) => setTranscriptionStatus(st),
-          customUrl,
-          undefined,
-          abortCtrl.signal
-        );
-      }
-
-      if (!result) {
-        result = await transcribeWithAcousticEngine(file, 30, (st) => setTranscriptionStatus(st));
+      if (!result || !result.tokens || result.tokens.length === 0) {
+        throw new Error('Transcription engine produced no tokens.');
       }
 
       const diarizedTokens = diarizeTokens(result.tokens);
@@ -1430,7 +1467,7 @@ export function App() {
 
       saveRecordingSession(sessionRecord).catch((e) => console.warn('Library save error:', e));
 
-      // 2. Also save to legacy cache for backward compatibility
+      // 2. Also save to cache for fingerprint matching
       saveTranscriptionToCache(file, detectedDuration, activeResult, storeAudioInVault)
         .then(() => {
           setToastNotification({
@@ -1470,36 +1507,9 @@ export function App() {
         });
 
         setToastNotification({
-          message: `Audio illuminated on-device (${errMsg.slice(0, 50)}...)`,
-          type: 'info',
+          message: `Transcription notice: ${errMsg.slice(0, 60)}. Select an engine below to retry.`,
+          type: 'error',
         });
-        try {
-          const fallbackRes = await transcribeWithAcousticEngine(file, 30);
-          setTokens(fallbackRes.tokens);
-          setBookTitle(fallbackRes.title);
-          setChapterTitle(fallbackRes.chapter);
-          setMarginaliaList(fallbackRes.marginalia);
-          setMilestoneDossier(fallbackRes.dossier);
-          setAccumulatedLexicon((prev) => ({ ...prev, ...fallbackRes.lexicon }));
-          setCurrentTime(0);
-          setActiveTab('book');
-          startPlay();
-        } catch {
-          const cleanName = file.name.replace(/\.[^/.]+$/, '').toUpperCase();
-          const fallbackWords = `Audio track ${cleanName} is loaded and ready for playback. Tap play to listen.`.split(/\s+/);
-          const basicTokens: WordToken[] = fallbackWords.map((w, idx) => ({
-            word: w,
-            start: Number((idx * 0.45).toFixed(2)),
-            end: Number(((idx + 1) * 0.45 - 0.05).toFixed(2)),
-            index: idx,
-          }));
-          setTokens(basicTokens);
-          setBookTitle(cleanName);
-          setChapterTitle('AUDIO PLAYBACK • ON-DEVICE');
-          setCurrentTime(0);
-          setActiveTab('book');
-          startPlay();
-        }
       }
     } finally {
       setIsTranscribing(false);
@@ -1564,6 +1574,7 @@ export function App() {
       if (session.audioBlob) {
         const audioUrl = URL.createObjectURL(session.audioBlob);
         setAudioSource(audioUrl);
+        buildAcousticTrackFromBlob(session.audioBlob).catch(() => {});
         const resumePos = session.lastPlaybackPositionSec || 0;
         setCurrentTime(resumePos);
         if (audioElementRef.current) {
@@ -1623,6 +1634,7 @@ export function App() {
         if (cached.audioBlob) {
           const audioUrl = URL.createObjectURL(cached.audioBlob);
           setAudioSource(audioUrl);
+          buildAcousticTrackFromBlob(cached.audioBlob).catch(() => {});
           setDuration(cached.duration || 38);
           startPlay();
           setToastNotification({
@@ -1648,7 +1660,9 @@ export function App() {
       audioContextRef.current = new AudioCtx();
     }
     const ctx = audioContextRef.current;
-    if (ctx.state === 'suspended') ctx.resume();
+    if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') {
+      ctx.resume().catch(() => {});
+    }
 
     if (activeSoundNodesRef.current) {
       try {
@@ -1739,6 +1753,13 @@ export function App() {
 
   const handleToggleAmbience = () => {
     if (!isAmbienceActive) {
+      if (
+        audioContextRef.current &&
+        (audioContextRef.current.state === 'suspended' ||
+          (audioContextRef.current.state as string) === 'interrupted')
+      ) {
+        audioContextRef.current.resume().catch(() => {});
+      }
       startBrainwaveSound(activeNoiseType, noiseVolume);
       setIsAmbienceActive(true);
     } else {
@@ -2204,8 +2225,7 @@ export function App() {
                     setTranscriptionErrorNotice(null);
                     setTranscriberEngine('local');
                     setStoredTranscriberEngine('local');
-                    setStagedImportFile(notice.file);
-                    handleConfirmImport('local', notice.storeAudioInVault);
+                    handleConfirmImport('local', notice.storeAudioInVault, undefined, 'whisper-tiny.en', notice.file);
                   }}
                   className="w-full py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-bold text-xs flex items-center justify-center gap-2 transition active:scale-95 shadow-md"
                 >
@@ -2230,8 +2250,7 @@ export function App() {
                       setTranscriptionErrorNotice(null);
                       setTranscriberEngine('local');
                       setStoredTranscriberEngine('local');
-                      setStagedImportFile(notice.file);
-                      handleConfirmImport('local', notice.storeAudioInVault, health.urlChecked);
+                      handleConfirmImport('local', notice.storeAudioInVault, health.urlChecked, 'whisper-tiny.en', notice.file);
                     } else {
                       setToastNotification({
                         message: `Server still unreachable at ${health.urlChecked || getStoredServerUrl()}.`,
@@ -2244,6 +2263,23 @@ export function App() {
                   Re-Check Engine Status & Retry
                 </button>
               </div>
+            )}
+
+            {/* Also allow retrying with On-Device In-Browser Whisper */}
+            {transcriptionErrorNotice.failedEngine !== 'builtin' && (
+              <button
+                onClick={() => {
+                  const notice = transcriptionErrorNotice;
+                  setTranscriptionErrorNotice(null);
+                  setTranscriberEngine('builtin');
+                  setStoredTranscriberEngine('builtin');
+                  handleConfirmImport('builtin', notice.storeAudioInVault, undefined, 'whisper-tiny.en', notice.file);
+                }}
+                className="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/20 text-stone-200 font-semibold text-xs flex items-center justify-center gap-2 transition"
+              >
+                <Cpu className="w-3.5 h-3.5 text-amber-400" />
+                <span>Retry with On-Device Whisper (WASM/WebGPU)</span>
+              </button>
             )}
 
             <div className="flex items-center justify-end gap-2 pt-1 border-t border-white/10">
@@ -2396,8 +2432,15 @@ export function App() {
       )}
 
       {/* Hidden Native Audio Element */}
-      <audio ref={audioElementRef} className="hidden" crossOrigin="anonymous" preload="auto" />
+      <audio
+        ref={audioElementRef}
+        className="hidden"
+        crossOrigin="anonymous"
+        preload="auto"
+        playsInline
+      />
     </div>
   );
 }
+
 export default App;
