@@ -1106,7 +1106,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                   <span>Detected Platform: {deviceCaps.deviceProfileName}</span>
                 </div>
                 <p className="text-[10px] text-stone-400 leading-relaxed font-mono">
-                  Hardware: {deviceCaps.hardwareConcurrency} CPU threads • Recommended Model: <strong className="text-amber-300">{deviceCaps.recommendedModel}</strong>
+                  Hardware: <span className="text-stone-200 font-semibold">{deviceCaps.gpuLabel}</span> • {deviceCaps.hardwareConcurrency} CPU threads • Recommended Model: <strong className="text-amber-300">{deviceCaps.recommendedModel}</strong>
                 </p>
                 {deviceCaps.deviceNotice && (
                   <p className="text-[10px] text-amber-300/90 bg-amber-500/10 p-2 rounded-xl border border-amber-500/20">

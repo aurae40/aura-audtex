@@ -13,6 +13,7 @@ import {
   Smartphone,
   Laptop,
   AlertCircle,
+  Activity,
 } from 'lucide-react';
 import type { TranscriberEngine, LocalServerStatus } from '../services/transcriptionService';
 import {
@@ -236,7 +237,7 @@ export const ImportConsentModal: React.FC<ImportConsentModalProps> = ({
 
         {/* Compact device summary; detailed setup remains inside the selected engine. */}
         {deviceCaps && (
-          <div className="px-3 py-2 rounded-xl bg-white/[0.02] border border-white/10">
+          <div className="px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/10 space-y-1.5">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5 text-stone-300 font-medium">
                 {deviceCaps.isMobile ? (
@@ -258,6 +259,24 @@ export const ImportConsentModal: React.FC<ImportConsentModalProps> = ({
                 </span>
               </div>
             </div>
+            {deviceCaps.gpuLabel && (
+              <div className="flex items-center justify-between text-[10px] border-t border-white/5 pt-1.5 gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Activity className="w-3 h-3 text-amber-400/80 shrink-0" />
+                  <span className="font-mono text-stone-300 truncate">{deviceCaps.gpuLabel}</span>
+                </div>
+                {deviceCaps.hasWebGPU && (
+                  <span className="shrink-0 font-mono text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
+                    WebGPU Ready
+                  </span>
+                )}
+              </div>
+            )}
+            {deviceCaps.deviceNotice && (
+              <p className="text-[10px] text-amber-300/80 leading-snug border-t border-white/5 pt-1 font-mono">
+                {deviceCaps.deviceNotice}
+              </p>
+            )}
           </div>
         )}
 
