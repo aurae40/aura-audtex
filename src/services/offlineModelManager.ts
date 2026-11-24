@@ -38,43 +38,55 @@ export const AVAILABLE_OFFLINE_MODELS: Omit<OfflineModelInfo, 'isDownloaded' | '
 ];
 
 /**
- * Checks whether an offline model has been previously downloaded and cached.
+ * Verifies real CacheStorage presence first so iOS Safari storage eviction
+ * is detected honestly instead of trusting stale localStorage flags.
  */
 export async function isModelCachedOffline(
   modelId: 'whisper-tiny.en' | 'whisper-base.en'
 ): Promise<boolean> {
-  // 1. Check local status flag
-  const flag = localStorage.getItem(`${MODEL_DOWNLOAD_PREFIX}${modelId}`);
-  if (flag) return true;
-
-  // 2. Check CacheStorage if available
   if (typeof caches !== 'undefined') {
     try {
       const cacheNames = await caches.keys();
+      let foundInCache = false;
+
       for (const name of cacheNames) {
         if (name.includes('transformers') || name.includes('onnx')) {
           const cache = await caches.open(name);
           const keys = await cache.keys();
-          const hasModel = keys.some((req) => req.url.includes(modelId));
-          if (hasModel) {
-            localStorage.setItem(
-              `${MODEL_DOWNLOAD_PREFIX}${modelId}`,
-              JSON.stringify({ downloadedAt: new Date().toISOString() })
-            );
-            return true;
+          // Verify actual ONNX model weight files exist, not just a tiny tokenizer JSON
+          const hasWeights = keys.some(
+            (req) => req.url.includes(modelId) && req.url.includes('.onnx')
+          );
+          if (hasWeights) {
+            foundInCache = true;
+            break;
           }
         }
       }
+
+      if (foundInCache) {
+        if (!localStorage.getItem(`${MODEL_DOWNLOAD_PREFIX}${modelId}`)) {
+          localStorage.setItem(
+            `${MODEL_DOWNLOAD_PREFIX}${modelId}`,
+            JSON.stringify({ downloadedAt: new Date().toISOString() })
+          );
+        }
+        return true;
+      }
+
+      // CacheStorage is accessible and model weights were evicted — clear stale flag
+      localStorage.removeItem(`${MODEL_DOWNLOAD_PREFIX}${modelId}`);
+      return false;
     } catch {
-      // ignore cache inspect errors
+      // Fallback to flag only if CacheStorage inspection is restricted
     }
   }
 
-  return false;
+  return Boolean(localStorage.getItem(`${MODEL_DOWNLOAD_PREFIX}${modelId}`));
 }
 
 /**
- * Returns the status of all available offline speech models.
+ * Returns the verified status of all available offline speech models.
  */
 export async function getAllOfflineModelsStatus(): Promise<OfflineModelInfo[]> {
   const result: OfflineModelInfo[] = [];
@@ -82,12 +94,14 @@ export async function getAllOfflineModelsStatus(): Promise<OfflineModelInfo[]> {
   for (const m of AVAILABLE_OFFLINE_MODELS) {
     const isDownloaded = await isModelCachedOffline(m.id);
     let downloadedAt: string | undefined;
-    const flag = localStorage.getItem(`${MODEL_DOWNLOAD_PREFIX}${m.id}`);
-    if (flag) {
-      try {
-        downloadedAt = JSON.parse(flag).downloadedAt;
-      } catch {
-        // ignore
+    if (isDownloaded) {
+      const flag = localStorage.getItem(`${MODEL_DOWNLOAD_PREFIX}${m.id}`);
+      if (flag) {
+        try {
+          downloadedAt = JSON.parse(flag).downloadedAt;
+        } catch {
+          // ignore
+        }
       }
     }
 
@@ -102,8 +116,7 @@ export async function getAllOfflineModelsStatus(): Promise<OfflineModelInfo[]> {
 }
 
 /**
- * Downloads a Whisper neural model explicitly for offline use,
- * reporting real-time progress callbacks.
+ * Downloads and caches a Whisper neural model explicitly for offline use.
  */
 export async function downloadModelForOffline(
   modelId: 'whisper-tiny.en' | 'whisper-base.en',
@@ -112,13 +125,11 @@ export async function downloadModelForOffline(
   onProgress(5, `Connecting to model repository for ${modelId}...`);
 
   await getBuiltinWhisperPipeline(modelId, (msg) => {
-    // Parse percentage if available
     const match = msg.match(/(\d+)%/);
     const pct = match ? parseInt(match[1], 10) : 50;
     onProgress(pct, msg);
   });
 
-  // Mark downloaded
   localStorage.setItem(
     `${MODEL_DOWNLOAD_PREFIX}${modelId}`,
     JSON.stringify({ downloadedAt: new Date().toISOString() })
@@ -128,7 +139,7 @@ export async function downloadModelForOffline(
 }
 
 /**
- * Removes a model from local cache tracking to free storage.
+ * Removes a cached model from CacheStorage and local tracking to free device storage.
  */
 export async function removeCachedModel(
   modelId: 'whisper-tiny.en' | 'whisper-base.en'
