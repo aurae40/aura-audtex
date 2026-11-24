@@ -48,6 +48,43 @@ let smoothedRMS: number = 0;
 let smoothedPeak: number = 0;
 let lastClippingTime: number = 0;
 
+let pcmAcousticTrack: Float32Array | null = null;
+let pcmSampleRate: number = 16000;
+
+/**
+ * Pre-computes real PCM acoustic frames from raw audio samples for cross-platform visualizer sync
+ * (particularly iOS Safari WebKit where MediaElementAudioSourceNode can return zeroes).
+ */
+export function buildAcousticTrackFromPCM(audioData: Float32Array, sampleRate: number = 16000): void {
+  if (!audioData || audioData.length === 0) return;
+  pcmSampleRate = sampleRate;
+  // Compute RMS envelope downsampled to ~50 frames per second (e.g. 320 samples per frame at 16kHz)
+  const hopSize = Math.max(1, Math.round(sampleRate / 50));
+  const frameCount = Math.ceil(audioData.length / hopSize);
+  const frames = new Float32Array(frameCount);
+  for (let i = 0; i < frameCount; i++) {
+    const start = i * hopSize;
+    const end = Math.min(audioData.length, start + hopSize);
+    let sum = 0;
+    for (let j = start; j < end; j++) {
+      sum += audioData[j] * audioData[j];
+    }
+    frames[i] = Math.min(1.0, Math.sqrt(sum / (end - start || 1)) * 3.5);
+  }
+  pcmAcousticTrack = frames;
+}
+
+export function getPCMAcousticFrame(currentTimeSec: number): number {
+  if (!pcmAcousticTrack || pcmAcousticTrack.length === 0) return 0;
+  const frameIdx = Math.floor(currentTimeSec * 50);
+  if (frameIdx < 0 || frameIdx >= pcmAcousticTrack.length) return 0;
+  return pcmAcousticTrack[frameIdx];
+}
+
+export function getPCMSampleRate(): number {
+  return pcmSampleRate;
+}
+
 // Auto-unlock AudioContext on user interaction for mobile browsers (iOS Safari, Android Chrome)
 if (typeof window !== 'undefined') {
   const unlockAudioContext = () => {
