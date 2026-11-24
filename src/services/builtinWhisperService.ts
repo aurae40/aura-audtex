@@ -3,6 +3,7 @@ import type { TranscriptionResult } from './transcriptionService';
 import { extractTranscriptVocabulary } from './dictionaryPackService';
 import { isPhysicalMobileDevice } from './hardwareDetectionService';
 import { buildAcousticTrackFromPCM } from './audioAnalyserService';
+import { applyGlossaryCorrections } from './glossaryService';
 
 export type BuiltinWhisperModel = 'whisper-tiny.en' | 'whisper-base.en';
 
@@ -294,7 +295,8 @@ export async function transcribeWithBuiltinWhisper(
       );
     }
 
-    return buildTranscriptionResult(file, tokens, duration, onProgress);
+    const { tokens: correctedTokens } = applyGlossaryCorrections(tokens);
+    return buildTranscriptionResult(file, correctedTokens, duration, onProgress);
   } finally {
     wakeLock?.release().catch(() => {});
   }

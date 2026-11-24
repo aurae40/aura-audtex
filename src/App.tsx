@@ -114,7 +114,7 @@ export function App() {
   });
   const [isSkinsOpen, setIsSkinsOpen] = useState(false);
   const [isVaultOpen, setIsVaultOpen] = useState(false);
-  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
+  const [isSearchGlossaryOpen, setIsSearchGlossaryOpen] = useState(false);
   const [isBrainwavesOpen, setIsBrainwavesOpen] = useState(false);
   const [isFullScreenOpen, setIsFullScreenOpen] = useState(false);
   const [isCountryModalOpen, setIsCountryModalOpen] = useState(false);
@@ -601,7 +601,7 @@ export function App() {
   const hasOverlayOpen =
     isFullScreenOpen ||
     isVaultOpen ||
-    isGlobalSearchOpen ||
+    isSearchGlossaryOpen ||
     isSkinsOpen ||
     isBrainwavesOpen ||
     isCountryModalOpen ||
@@ -623,8 +623,8 @@ export function App() {
       pushedHistoryRef.current = false;
       if (isFullScreenOpen) {
         handleCloseFullScreen();
-      } else if (isGlobalSearchOpen) {
-        setIsGlobalSearchOpen(false);
+      } else if (isSearchGlossaryOpen) {
+        setIsSearchGlossaryOpen(false);
       } else if (isWebLinkModalOpen) {
         setIsWebLinkModalOpen(false);
       } else if (isCountryModalOpen) {
@@ -644,7 +644,7 @@ export function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [
     isFullScreenOpen,
-    isGlobalSearchOpen,
+    isSearchGlossaryOpen,
     isWebLinkModalOpen,
     isCountryModalOpen,
     isVaultOpen,
@@ -658,7 +658,7 @@ export function App() {
     const handleGlobalEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (isFullScreenOpen) handleCloseFullScreen();
-        else if (isGlobalSearchOpen) setIsGlobalSearchOpen(false);
+        else if (isSearchGlossaryOpen) setIsSearchGlossaryOpen(false);
         else if (isWebLinkModalOpen) setIsWebLinkModalOpen(false);
         else if (isCountryModalOpen) setIsCountryModalOpen(false);
         else if (isVaultOpen) setIsVaultOpen(false);
@@ -672,7 +672,7 @@ export function App() {
     return () => window.removeEventListener('keydown', handleGlobalEsc);
   }, [
     isFullScreenOpen,
-    isGlobalSearchOpen,
+    isSearchGlossaryOpen,
     isWebLinkModalOpen,
     isCountryModalOpen,
     isVaultOpen,
@@ -686,9 +686,10 @@ export function App() {
   // Global Ctrl+K / Cmd+K Quick Search & Glossary Shortcut
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setIsGlobalSearchOpen((prev) => !prev);
+        setIsSearchGlossaryOpen((prev) => !prev);
+        return;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -1606,7 +1607,7 @@ export function App() {
     }
   };
 
-  const handleLoadSession = async (sessionId: string) => {
+  const handleLoadSession = async (sessionId: string, seekToSec?: number) => {
     try {
       const session = await getRecordingSessionById(sessionId);
       if (!session) {
@@ -1663,7 +1664,7 @@ export function App() {
         const audioUrl = URL.createObjectURL(session.audioBlob);
         setAudioSource(audioUrl);
         buildAcousticTrackFromBlob(session.audioBlob).catch(() => {});
-        const resumePos = session.lastPlaybackPositionSec || 0;
+        const resumePos = seekToSec !== undefined ? seekToSec : (session.lastPlaybackPositionSec || 0);
         setCurrentTime(resumePos);
         if (audioElementRef.current) {
           audioElementRef.current.currentTime = resumePos;
@@ -1676,6 +1677,9 @@ export function App() {
           type: 'info',
         });
       } else {
+        if (seekToSec !== undefined) {
+          setCurrentTime(seekToSec);
+        }
         setIsVoiceoverMode(true);
         setActiveTab('book');
         setToastNotification({
@@ -1692,30 +1696,36 @@ export function App() {
     }
   };
 
-  const handleJumpToSessionHit = async (sessionId: string, timestampSec: number, isCurrentSession?: boolean) => {
+  const handleJumpToSearchHit = async (
+    sessionId: string,
+    timestampSec: number,
+    isCurrentSession?: boolean
+  ) => {
+    setIsSearchGlossaryOpen(false);
+    setIsVaultOpen(false);
     if (isCurrentSession || sessionId === currentSessionId) {
-      handleSeek(timestampSec);
-      startPlay();
       setActiveTab('book');
+      handleSeekAndPlay(timestampSec);
     } else {
-      await handleLoadSession(sessionId);
-      handleSeek(timestampSec);
-      startPlay();
-      setActiveTab('book');
+      await handleLoadSession(sessionId, timestampSec);
     }
   };
 
   const handleApplyGlossaryToActiveTranscript = (): number => {
-    const { tokens: updated, replacementCount } = applyGlossaryCorrections(tokens);
+    if (tokens.length === 0) return 0;
+    const { tokens: fixed, replacementCount } = applyGlossaryCorrections(tokens);
     if (replacementCount > 0) {
-      setTokens(updated);
-      if (currentSessionId) {
-        updateSessionAnnotations(currentSessionId, { tokens: updated }).catch(() => {});
+      setTokens(fixed);
+      if (currentSessionId && !currentSessionId.startsWith('session_default')) {
+        getRecordingSessionById(currentSessionId)
+          .then((session) => {
+            if (session) {
+              session.tokens = fixed;
+              return saveRecordingSession(session);
+            }
+          })
+          .catch(() => {});
       }
-      setToastNotification({
-        message: `✦ Applied glossary: ${replacementCount} ${replacementCount === 1 ? 'word' : 'words'} auto-corrected!`,
-        type: 'info',
-      });
     }
     return replacementCount;
   };
@@ -2100,6 +2110,7 @@ export function App() {
             isLiveRecording={isLiveRecording}
             liveRecordingDuration={liveRecordingDuration}
             onToggleLiveMeeting={handleToggleLiveMeeting}
+            onOpenSearchGlossary={() => setIsSearchGlossaryOpen(true)}
             onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
             hasAudioTrack={Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src))}
             isVoiceoverActive={isVoiceoverMode}
@@ -2256,6 +2267,7 @@ export function App() {
             isLiveRecording={isLiveRecording}
             liveRecordingDuration={liveRecordingDuration}
             onToggleLiveMeeting={handleToggleLiveMeeting}
+            onOpenSearchGlossary={() => setIsSearchGlossaryOpen(true)}
             onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
             hasAudioTrack={Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src))}
             isVoiceoverActive={isVoiceoverMode}
@@ -2480,12 +2492,12 @@ export function App() {
           }}
           onLoadCachedCodex={handleLoadCachedByFingerprint}
           onLoadSession={handleLoadSession}
-          onJumpToSessionHit={handleJumpToSessionHit}
+          onJumpToSessionHit={handleJumpToSearchHit}
           onApplyGlossaryToActiveTranscript={handleApplyGlossaryToActiveTranscript}
           activeSession={
             tokens.length > 0
               ? {
-                  id: currentSessionId || 'current_session',
+                  id: currentSessionId,
                   title: bookTitle,
                   chapter: chapterTitle,
                   fileName: bookTitle,
@@ -2509,22 +2521,20 @@ export function App() {
       )}
 
       {/* Global Quick Search & Personal Glossary Overlay (Ctrl+K / Cmd+K) */}
-      {isGlobalSearchOpen && (
+      {isSearchGlossaryOpen && (
         <GlobalSearchAndGlossaryPanel
           isModalOverlay
-          onClose={() => setIsGlobalSearchOpen(false)}
-          onJumpToSessionHit={(sessionId, timestampSec, isCurrentSession) => {
-            setIsGlobalSearchOpen(false);
-            handleJumpToSessionHit(sessionId, timestampSec, isCurrentSession);
-          }}
+          initialTab="search"
+          onClose={() => setIsSearchGlossaryOpen(false)}
+          onJumpToSessionHit={handleJumpToSearchHit}
           onApplyGlossaryToActiveTranscript={handleApplyGlossaryToActiveTranscript}
           activeSession={
             tokens.length > 0
               ? {
-                  id: currentSessionId || 'current_session',
+                  id: currentSessionId,
                   title: bookTitle,
                   chapter: chapterTitle,
-                  hasAudio: !isVoiceoverMode,
+                  hasAudio: Boolean(activeBlobUrlRef.current || audioElementRef.current?.src),
                   tokens,
                   highlights: userHighlights,
                   reflections,

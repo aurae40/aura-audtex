@@ -81,7 +81,7 @@ interface VaultModalProps {
   transcriberEngine: TranscriberEngine;
   onSaveTranscriberEngine: (engine: TranscriberEngine) => void;
   onLoadCachedCodex?: (fingerprint: string) => void;
-  onLoadSession?: (sessionId: string) => void;
+  onLoadSession?: (sessionId: string, seekToSec?: number) => void;
   onJumpToSessionHit?: (sessionId: string, timestampSec: number, isCurrentSession?: boolean) => void;
   onApplyGlossaryToActiveTranscript?: () => number;
   initialTab?: 'library' | 'pdf' | 'models' | 'lexicon' | 'settings' | 'search';

@@ -562,7 +562,7 @@ async def transcribe_audio(
     file: UploadFile = File(...),
     model_size: str = Query("tiny", pattern="^(tiny|base|small)$"),
     language: Optional[str] = Query(None),
-    initial_prompt: Optional[str] = Query(None),
+    initial_prompt: Optional[str] = Query(None, max_length=600),
     authorization: Optional[str] = Header(None),
 ):
     """
@@ -641,7 +641,7 @@ async def transcribe_audio(
             log_prob_threshold=-1.0,
             no_speech_threshold=0.6,
             language=language if language else None,
-            initial_prompt=initial_prompt if initial_prompt else None,
+            initial_prompt=initial_prompt.strip() if initial_prompt and initial_prompt.strip() else None,
         )
         return list(segments_gen), info_obj
 
@@ -802,7 +802,7 @@ async def transcribe_url_endpoint(
                     speech_pad_ms=250,
                 ),
                 language=req.language,
-                initial_prompt=req.initial_prompt if req.initial_prompt else None,
+                initial_prompt=req.initial_prompt.strip()[:600] if req.initial_prompt and req.initial_prompt.strip() else None,
             )
             return list(segments_gen), info_obj
 

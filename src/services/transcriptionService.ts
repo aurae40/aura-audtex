@@ -265,15 +265,13 @@ export async function transcribeWithLocalServer(
   const formData = new FormData();
   formData.append('file', file);
 
-  const initialPrompt = buildWhisperInitialPrompt();
-  let transcribeEndpoint = `${base}/transcribe?model_size=${encodeURIComponent(model)}`;
-  if (initialPrompt) {
-    transcribeEndpoint += `&initial_prompt=${encodeURIComponent(initialPrompt)}`;
-  }
+  const glossaryPrompt = buildWhisperInitialPrompt();
+  const queryParams = new URLSearchParams({ model_size: model });
+  if (glossaryPrompt) queryParams.set('initial_prompt', glossaryPrompt);
 
   const data = await new Promise<any>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', transcribeEndpoint, true);
+    xhr.open('POST', `${base}/transcribe?${queryParams.toString()}`, true);
     if (token) {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     }
@@ -316,9 +314,8 @@ export async function transcribeWithLocalServer(
     xhr.send(formData);
   });
 
-  if (data.tokens && Array.isArray(data.tokens)) {
-    const { tokens: corrected } = applyGlossaryCorrections(data.tokens);
-    data.tokens = corrected;
+  if (Array.isArray(data.tokens)) {
+    data.tokens = applyGlossaryCorrections(data.tokens).tokens;
   }
 
   if (data.meta && !data.engineInfo) {

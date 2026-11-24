@@ -19,6 +19,7 @@ import {
   Globe,
   Square,
   Volume2,
+  Search,
 } from 'lucide-react';
 import { WaveformRibbon } from './WaveformRibbon';
 
@@ -55,6 +56,7 @@ interface PlayerBarProps {
   hasAudioTrack?: boolean;
   isVoiceoverActive?: boolean;
   onToggleVoiceover?: () => void;
+  onOpenSearchGlossary?: () => void;
 }
 
 const NOISE_LABELS: Record<BrainNoiseType, string> = {
@@ -98,6 +100,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   hasAudioTrack = false,
   isVoiceoverActive = false,
   onToggleVoiceover,
+  onOpenSearchGlossary,
 }) => {
   const [showPlayerOptions, setShowPlayerOptions] = useState(false);
   const playerOptionsRef = useRef<HTMLDivElement | null>(null);
@@ -301,6 +304,23 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                 >
                   <Mic className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                   <span>Add spoken note</span>
+                </button>
+              )}
+              {onOpenSearchGlossary && (
+                <button
+                  onClick={() => {
+                    setShowPlayerOptions(false);
+                    onOpenSearchGlossary();
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-between text-xs text-stone-800 dark:text-stone-200 transition-colors cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <Search className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
+                    <span>Search All Recordings & Glossary</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-cyan-700 dark:text-cyan-300 font-semibold">
+                    Ctrl+K
+                  </span>
                 </button>
               )}
               {onOpenWebLinkModal && (
