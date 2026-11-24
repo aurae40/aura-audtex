@@ -1,8 +1,8 @@
 """
-AuRA_AuDTEX Local Python Transcriber Engine (Production Grade)
+AuRA_AuDTEX Local Python Transcriber Engine (Production Cross-Platform Edition)
 FastAPI + Faster-Whisper + CTranslate2 (CUDA GPU & CPU Accelerated)
-Provides 100% offline verbatim word-level acoustic timestamps, dynamic marginalia,
-and scholarly lexicon extraction.
+Provides verbatim word-level acoustic timestamps, iOS-compatible M4A web audio streaming,
+non-blocking async execution, dynamic marginalia, and scholarly lexicon extraction.
 """
 
 import os
@@ -11,6 +11,7 @@ import time
 import socket
 import tempfile
 import asyncio
+import subprocess
 from typing import List, Dict, Any, Optional
 
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Header, Request, Response
@@ -18,29 +19,47 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# Initialize FastAPI app
 app = FastAPI(
     title="AuRA_AuDTEX Local Transcriber",
-    description="State-of-the-art offline speech-to-text with verbatim word timestamps",
-    version="2.0.0"
+    description="Cross-platform offline speech-to-text with verbatim word timestamps",
+    version="2.1.0",
 )
 
 # Persistent Audio Stream Cache Directory
 AUDIO_CACHE_DIR = os.path.join(tempfile.gettempdir(), "aura_audio_cache")
 os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
+
 @app.get("/audio/{filename}")
 async def serve_cached_audio(filename: str):
-    """Serves downloaded web audio stream for local and remote AuRA players."""
+    """Serves cached web audio with byte-range headers required by iPhone/iPad Safari."""
     safe_name = os.path.basename(filename)
     file_path = os.path.join(AUDIO_CACHE_DIR, safe_name)
     if os.path.isfile(file_path):
         ext = os.path.splitext(safe_name)[1].lower()
-        media_type = "audio/mpeg" if ext == ".mp3" else ("audio/webm" if ext == ".webm" else "audio/mp4" if ext == ".m4a" else "application/octet-stream")
-        return FileResponse(file_path, media_type=media_type)
+        mime_map = {
+            ".m4a": "audio/mp4",
+            ".mp4": "audio/mp4",
+            ".mp3": "audio/mpeg",
+            ".wav": "audio/wav",
+            ".ogg": "audio/ogg",
+            ".opus": "audio/ogg",
+            ".webm": "audio/webm",
+            ".aac": "audio/aac",
+        }
+        media_type = mime_map.get(ext, "application/octet-stream")
+        return FileResponse(
+            file_path,
+            media_type=media_type,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "public, max-age=3600",
+            },
+        )
     raise HTTPException(status_code=404, detail="Audio file not found or expired.")
 
-# Support W3C Private Network Access (allows HTTPS origins to connect to localhost)
+
+# Support W3C Private Network Access (allows HTTPS origins to connect to localhost/LAN)
 @app.middleware("http")
 async def add_private_network_headers(request: Request, call_next):
     if request.method == "OPTIONS" and "access-control-request-private-network" in request.headers:
@@ -50,13 +69,27 @@ async def add_private_network_headers(request: Request, call_next):
         res.headers["Access-Control-Allow-Private-Network"] = "true"
         res.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         res.headers["Access-Control-Allow-Headers"] = "*"
+        res.headers["Access-Control-Expose-Headers"] = "Content-Range, Accept-Ranges, Content-Length"
         return res
     response = await call_next(request)
     response.headers["Access-Control-Allow-Private-Network"] = "true"
     return response
 
-# Secure CORS: Restrict to local development, LAN IP ranges, Beacon Host and Cloudflare tunnel
-ALLOWED_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|.*\.github\.io|.*\.beacon\.host|.*\.trycloudflare\.com)(:\d+)?$"
+
+# Secure CORS: Local dev, LAN IP ranges, GitHub Pages, Beacon Host, Cloudflare Tunnels & optional env origins
+extra_origins = [
+    o.strip()
+    for o in os.environ.get("AURA_CORS_ORIGINS", "").split(",")
+    if o.strip()
+]
+
+ALLOWED_ORIGIN_REGEX = (
+    r"^https?://("
+    r"localhost|127\.0\.0\.1|"
+    r"192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|"
+    r".*\.github\.io|.*\.beacon\.host|.*\.trycloudflare\.com|.*\.vercel\.app|.*\.netlify\.app"
+    r")(:\d+)?$"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -67,51 +100,44 @@ app.add_middleware(
         "http://127.0.0.1:4173",
         "https://aura-player.beacon.host",
         "https://aurae40.github.io",
+        *extra_origins,
     ],
     allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["Content-Range", "Accept-Ranges", "Content-Length"],
 )
 
-# Concurrency semaphore: maximum 2 concurrent inference jobs to protect memory
+# Concurrency semaphore: max 2 concurrent Whisper jobs to protect GPU/RAM
 CONCURRENCY_SEMAPHORE = asyncio.Semaphore(2)
 
 # Max upload limit: 150 MB
 MAX_UPLOAD_SIZE = 150 * 1024 * 1024
 
-# Allowed audio extensions & magic byte signatures
 ALLOWED_AUDIO_EXTENSIONS = {
     ".mp3", ".wav", ".m4a", ".m4b", ".aac", ".ogg", ".oga", ".opus", ".flac", ".webm", ".mp4",
     ".aif", ".aiff", ".amr", ".3gp", ".caf", ".wma",
 }
 
+
 def is_valid_audio_magic(header: bytes, ext: str) -> bool:
     """Validates audio magic bytes to prevent arbitrary binary upload execution."""
     if len(header) < 4:
         return False
-    # MP3 (ID3v2 or MPEG sync)
     if header.startswith(b"ID3") or (header[0] == 0xFF and (header[1] & 0xE0) == 0xE0):
         return True
-    # WAV
     if header.startswith(b"RIFF") and b"WAVE" in header[:16]:
         return True
-    # OGG
-    if header.startswith(b"OggS"):
+    if header.startswith(b"OggS") or header.startswith(b"fLaC") or header.startswith(b"caff"):
         return True
-    # FLAC
-    if header.startswith(b"fLaC"):
-        return True
-    # M4A / MP4
     if b"ftyp" in header[:16]:
         return True
-    # WebM / Matroska
     if header.startswith(b"\x1a\x45\xdf\xa3"):
         return True
-    # Allow known audio extension if header check is inconclusive
     return ext.lower() in ALLOWED_AUDIO_EXTENSIONS
 
-# Cache for loaded Whisper models
+
 loaded_models: Dict[str, Any] = {}
 cached_device_info: Optional[Dict[str, Any]] = None
 
@@ -135,36 +161,37 @@ def get_hardware_info() -> Dict[str, Any]:
         return cached_device_info
 
     import ctranslate2
-    has_cuda = False
+
     device = "cpu"
     compute_type = "int8"
     threads = max(1, os.cpu_count() or 4)
     display_name = f"Multi-Threaded CPU ({threads} cores, INT8)"
 
-    # Verify if CUDA and required cuBLAS DLLs are actually present and operational
     if ctranslate2.get_cuda_device_count() > 0:
         try:
             import numpy as np
             from faster_whisper import WhisperModel
+
             test_m = WhisperModel("tiny", device="cuda", compute_type="float16")
-            test_m.model.encode(ctranslate2.StorageView.from_array(np.zeros((1, 80, 100), dtype=np.float32)))
-            has_cuda = True
+            test_m.model.encode(
+                ctranslate2.StorageView.from_array(np.zeros((1, 80, 100), dtype=np.float32))
+            )
             device = "cuda"
             compute_type = "float16"
             display_name = "NVIDIA CUDA GPU"
             try:
                 out = subprocess.check_output(
                     ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
-                    encoding="utf-8"
+                    encoding="utf-8",
                 ).strip().split(",")
                 gpu_name = out[0].strip()
                 vram_mb = out[1].strip()
-                display_name = f"{gpu_name} ({round(float(vram_mb)/1024, 1)} GB VRAM)"
+                display_name = f"{gpu_name} ({round(float(vram_mb) / 1024, 1)} GB VRAM)"
             except Exception:
                 pass
         except Exception as cuda_err:
             print(f"[*] CUDA check notice: {cuda_err}")
-            print(f"[*] Using high-speed multi-threaded CPU INT8 execution across {threads} cores.")
+            print(f"[*] Using multi-threaded CPU INT8 execution across {threads} cores.")
 
     cached_device_info = {
         "device": device,
@@ -176,10 +203,7 @@ def get_hardware_info() -> Dict[str, Any]:
 
 
 def get_whisper_model(model_size: str = "tiny"):
-    """
-    Retrieves or lazily loads the requested Whisper model on the optimal hardware.
-    Caches model permanently in memory for sub-second subsequent runs.
-    """
+    """Retrieves or lazily loads the requested Whisper model on optimal hardware."""
     global loaded_models
     hw = get_hardware_info()
     cache_key = f"{model_size}_{hw['device']}_{hw['compute_type']}"
@@ -189,6 +213,7 @@ def get_whisper_model(model_size: str = "tiny"):
 
     try:
         from faster_whisper import WhisperModel
+
         print(f"[*] Initializing Faster-Whisper ({model_size}) on {hw['display_name']} ({hw['compute_type']})...")
         t0 = time.time()
 
@@ -204,11 +229,11 @@ def get_whisper_model(model_size: str = "tiny"):
         return model
     except Exception as e:
         print(f"[-] Error loading model '{model_size}' on {hw['device']}: {e}")
-        # Fallback to CPU if CUDA fails
         if hw["device"] == "cuda":
             try:
                 print(f"[*] Attempting CPU INT8 fallback for '{model_size}'...")
                 from faster_whisper import WhisperModel
+
                 threads = max(1, os.cpu_count() or 4)
                 model = WhisperModel(model_size, device="cpu", compute_type="int8", cpu_threads=threads)
                 loaded_models[cache_key] = model
@@ -218,7 +243,6 @@ def get_whisper_model(model_size: str = "tiny"):
         return None
 
 
-# Common English stop words to filter out during lexicon extraction
 STOP_WORDS = {
     "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are",
     "as", "at", "be", "because", "been", "before", "being", "below", "between", "both", "but",
@@ -232,15 +256,12 @@ STOP_WORDS = {
     "under", "until", "up", "very", "was", "we", "were", "what", "when", "where", "which",
     "while", "who", "whom", "why", "with", "would", "you", "your", "yours", "yourself",
     "yourselves", "will", "can", "shall", "may", "must", "might", "also", "like", "well",
-    "just", "going", "know", "think", "really", "actually", "something", "things", "thing"
+    "going", "know", "think", "really", "actually", "something", "things", "thing",
 }
 
 
 def extract_scholarly_lexicon(tokens: List[Dict[str, Any]], audio_duration: float) -> Dict[str, Any]:
-    """
-    Extracts prominent conceptual and scholarly terms from the actual words spoken in the audio,
-    calculating their exact in-audio timestamps and sentences so the user can click them to seek.
-    """
+    """Extracts meaningful terms and spoken sentence context from the transcript."""
     lexicon_map: Dict[str, Any] = {}
     word_stats: Dict[str, Dict[str, Any]] = {}
 
@@ -249,7 +270,6 @@ def extract_scholarly_lexicon(tokens: List[Dict[str, Any]], audio_duration: floa
         clean = "".join(c for c in raw_word.lower() if c.isalnum() or c in "'-")
         if len(clean) >= 4 and clean not in STOP_WORDS and not clean.isdigit():
             if clean not in word_stats:
-                # Find sentence boundary
                 start_i = max(0, idx - 4)
                 end_i = min(len(tokens), idx + 8)
                 sentence_tokens = tokens[start_i:end_i]
@@ -269,17 +289,15 @@ def extract_scholarly_lexicon(tokens: List[Dict[str, Any]], audio_duration: floa
                 word_stats[clean]["timestamps"].append(t["start"])
                 word_stats[clean]["count"] += 1
 
-    # Rank by learning value: length and frequency
-    sorted_terms = sorted(word_stats.items(), key=lambda kv: (len(kv[0]) >= 7, kv[1]["count"] * 2 + len(kv[0])), reverse=True)
-    # Preserve the recording's full meaningful vocabulary rather than an
-    # arbitrary shortlist. The ceiling protects browser storage on book-length
-    # audio while covering normal recordings in full.
+    sorted_terms = sorted(
+        word_stats.items(),
+        key=lambda kv: (len(kv[0]) >= 7, kv[1]["count"] * 2 + len(kv[0])),
+        reverse=True,
+    )
     selected_terms = sorted_terms[:2000]
 
     for idx, (term, stat) in enumerate(selected_terms):
         title_term = stat["surface"].capitalize()
-        first_time = stat["timestamps"][0]
-
         lexicon_map[term] = {
             "id": f"lex_local_{idx}_{int(time.time())}",
             "term": title_term,
@@ -313,18 +331,17 @@ def build_dynamic_marginalia(tokens: List[Dict[str, Any]], duration: float, file
     marginalia = [
         {
             "thresholdTime": 0.0,
-            "mainIdea": f"Acoustic ingestion of '{file_name}'. Transcribed 100% on-device with Faster-Whisper neural network ({len(tokens)} words detected).",
+            "mainIdea": f"Acoustic ingestion of '{file_name}'. Transcribed with Faster-Whisper ({len(tokens)} words detected).",
             "conceptDecoder": {
                 "term": "Hardware Accelerated Decoding",
-                "explanation": "Speech transcribed locally with verbatim word-level alignment without sending audio to any third-party server.",
+                "explanation": "Speech transcribed with verbatim word-level alignment.",
             },
             "connectedTags": ["Local AI", "Privacy First", "AuRA_AuDTEX"],
-            "realWorldExample": "Like having an illuminated monastic scribe transcribing directly onto your screen.",
+            "realWorldExample": "Every spoken word is mapped directly to its exact acoustic timestamp.",
         }
     ]
 
     if duration >= 15:
-        # Find words around the 35% mark
         mid_time = duration * 0.35
         mid_words = [t["word"] for t in tokens if abs(t["start"] - mid_time) < 10][:12]
         mid_sample = " ".join(mid_words) if mid_words else "the speaker develops core operational principles"
@@ -334,14 +351,13 @@ def build_dynamic_marginalia(tokens: List[Dict[str, Any]], duration: float, file
             "mainIdea": f"Thematic Progression: Spoken discourse introduces key supporting evidence ('{mid_sample}...').",
             "conceptDecoder": {
                 "term": "Acoustic Dual-Coding",
-                "explanation": "Synchronizing auditory input with illuminated spatial landmarks increases retention by up to 300%.",
+                "explanation": "Synchronizing auditory input with illuminated spatial landmarks strengthens recall.",
             },
             "connectedTags": ["Dual-Coding", "Working Memory", "Retention"],
-            "realWorldExample": "Transforming fleeting spoken words into an enduring physical codex.",
+            "realWorldExample": "Transforming fleeting spoken words into an enduring spatial codex.",
         })
 
     if duration >= 40:
-        # Find words around the 70% mark
         synth_time = duration * 0.70
         synth_words = [t["word"] for t in tokens if abs(t["start"] - synth_time) < 10][:12]
         synth_sample = " ".join(synth_words) if synth_words else "drawing analytical threads together"
@@ -354,10 +370,45 @@ def build_dynamic_marginalia(tokens: List[Dict[str, Any]], duration: float, file
                 "explanation": "Anchoring auditory reflections into permanent conceptual memory structures.",
             },
             "connectedTags": ["Synthesis", "Epistemic Rigor"],
-            "realWorldExample": "Turning scattered spoken arguments into an illuminated mental blueprint.",
+            "realWorldExample": "Turning scattered spoken arguments into a searchable mental blueprint.",
         })
 
     return marginalia
+
+
+def segments_to_tokens(segments: List[Any]) -> List[Dict[str, Any]]:
+    """Normalizes Faster-Whisper segments into word-level timestamped tokens."""
+    tokens: List[Dict[str, Any]] = []
+    token_index = 0
+
+    for segment in segments:
+        if segment.words:
+            for w in segment.words:
+                word_str = w.word.strip()
+                if word_str:
+                    tokens.append({
+                        "word": word_str,
+                        "start": round(w.start, 2),
+                        "end": round(max(w.start + 0.05, w.end), 2),
+                        "index": token_index,
+                    })
+                    token_index += 1
+        elif segment.text.strip():
+            words_in_seg = segment.text.strip().split()
+            if words_in_seg:
+                step = (segment.end - segment.start) / len(words_in_seg)
+                for sw_idx, sw in enumerate(words_in_seg):
+                    s = segment.start + sw_idx * step
+                    e = max(s + 0.05, min(segment.end, s + step))
+                    tokens.append({
+                        "word": sw,
+                        "start": round(s, 2),
+                        "end": round(e, 2),
+                        "index": token_index,
+                    })
+                    token_index += 1
+
+    return tokens
 
 
 # ==========================================
@@ -376,8 +427,9 @@ def root():
         "endpoints": {
             "health": "/health",
             "transcribe": "/transcribe",
-            "models": "/models"
-        }
+            "transcribe_url": "/transcribe-url",
+            "models": "/models",
+        },
     }
 
 
@@ -395,13 +447,12 @@ def health_check():
         "active_models": list(loaded_models.keys()),
         "lan_ip": hw["lan_ip"],
         "offline": True,
-        "message": f"Hardware acceleration active on {hw['display_name']}."
+        "message": f"Hardware acceleration active on {hw['display_name']}.",
     }
 
 
 @app.get("/models")
 def list_available_models():
-    """Lists available pre-configured models and their VRAM/CPU profiles."""
     hw = get_hardware_info()
     return {
         "device": hw["display_name"],
@@ -413,7 +464,7 @@ def list_available_models():
                 "profile": "Ultra-Fast Draft",
                 "speed": "~0.5s execution",
                 "vram": "< 0.5 GB",
-                "loaded": "tiny_cuda_float16" in loaded_models or "tiny_cpu_int8" in loaded_models
+                "loaded": "tiny_cuda_float16" in loaded_models or "tiny_cpu_int8" in loaded_models,
             },
             {
                 "id": "base",
@@ -421,7 +472,7 @@ def list_available_models():
                 "profile": "Studio Default (Recommended)",
                 "speed": "~1.0s execution",
                 "vram": "< 1.0 GB",
-                "loaded": "base_cuda_float16" in loaded_models or "base_cpu_int8" in loaded_models
+                "loaded": "base_cuda_float16" in loaded_models or "base_cpu_int8" in loaded_models,
             },
             {
                 "id": "small",
@@ -429,9 +480,9 @@ def list_available_models():
                 "profile": "Scholarly Precision & Accents",
                 "speed": "~2.5s execution",
                 "vram": "< 2.0 GB",
-                "loaded": "small_cuda_float16" in loaded_models or "small_cpu_int8" in loaded_models
-            }
-        ]
+                "loaded": "small_cuda_float16" in loaded_models or "small_cpu_int8" in loaded_models,
+            },
+        ],
     }
 
 
@@ -440,6 +491,7 @@ RATE_LIMIT_STORE: Dict[str, List[float]] = {}
 RATE_LIMIT_MAX_PER_MINUTE = 12
 RATE_LIMIT_WINDOW_SEC = 60.0
 
+
 def enforce_rate_limit(client_ip: str):
     now = time.time()
     history = RATE_LIMIT_STORE.get(client_ip, [])
@@ -447,7 +499,7 @@ def enforce_rate_limit(client_ip: str):
     if len(history) >= RATE_LIMIT_MAX_PER_MINUTE:
         raise HTTPException(
             status_code=429,
-            detail=f"Rate limit exceeded: maximum {RATE_LIMIT_MAX_PER_MINUTE} audio transcription requests per minute."
+            detail=f"Rate limit exceeded: maximum {RATE_LIMIT_MAX_PER_MINUTE} audio transcription requests per minute.",
         )
     history.append(now)
     RATE_LIMIT_STORE[client_ip] = history
@@ -459,42 +511,34 @@ async def transcribe_audio(
     file: UploadFile = File(...),
     model_size: str = Query("tiny", pattern="^(tiny|base|small)$"),
     language: Optional[str] = Query(None),
-    authorization: Optional[str] = Header(None)
+    authorization: Optional[str] = Header(None),
 ):
     """
-    Transcribes uploaded audio with microsecond-level verbatim word timestamps.
-    Includes production defenses: file-size limits, chunk streaming, magic byte checks,
-    optional bearer auth, concurrency limits, and per-IP rate limiting.
+    Non-blocking Faster-Whisper transcription endpoint.
+    Runs inference in a worker thread via asyncio.to_thread so /health and /audio/ stay responsive.
     """
     client_ip = request.client.host if request.client else "127.0.0.1"
     enforce_rate_limit(client_ip)
 
-    # 1. Check optional bearer authentication if configured in environment
     required_token = os.environ.get("AURA_AUTH_TOKEN")
-    if required_token:
-        expected_header = f"Bearer {required_token}"
-        if authorization != expected_header:
-            raise HTTPException(status_code=401, detail="Unauthorized: invalid or missing audio engine token.")
+    if required_token and authorization != f"Bearer {required_token}":
+        raise HTTPException(status_code=401, detail="Unauthorized: invalid or missing audio engine token.")
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="No audio file uploaded.")
 
-    # 2. Validate file extension
     suffix = os.path.splitext(file.filename)[1].lower() or ".mp3"
     if suffix not in ALLOWED_AUDIO_EXTENSIONS:
         raise HTTPException(
             status_code=415,
-            detail=f"Unsupported audio format '{suffix}'. Allowed formats: {', '.join(sorted(ALLOWED_AUDIO_EXTENSIONS))}"
+            detail=f"Unsupported audio format '{suffix}'. Allowed formats: {', '.join(sorted(ALLOWED_AUDIO_EXTENSIONS))}",
         )
 
+    hw = get_hardware_info()
     model = get_whisper_model(model_size)
     if not model:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Whisper model '{model_size}' could not be initialized."
-        )
+        raise HTTPException(status_code=503, detail=f"Whisper model '{model_size}' could not be initialized.")
 
-    # 3. Stream upload directly to tempfile in 1MB chunks to prevent memory exhaustion
     total_size = 0
     first_chunk = True
     tmp_path = None
@@ -507,13 +551,13 @@ async def transcribe_audio(
                 if total_size > MAX_UPLOAD_SIZE:
                     raise HTTPException(
                         status_code=413,
-                        detail=f"Audio file exceeds maximum size limit ({MAX_UPLOAD_SIZE // (1024 * 1024)} MB)."
+                        detail=f"Audio file exceeds maximum size limit ({MAX_UPLOAD_SIZE // (1024 * 1024)} MB).",
                     )
                 if first_chunk:
                     if not is_valid_audio_magic(chunk, suffix):
                         raise HTTPException(
                             status_code=400,
-                            detail="Uploaded file signature does not match a valid audio format."
+                            detail="Uploaded file signature does not match a valid audio format.",
                         )
                     first_chunk = False
                 tmp.write(chunk)
@@ -527,100 +571,62 @@ async def transcribe_audio(
 
     start_perf = time.time()
 
+    def _run_whisper_sync():
+        segments_gen, info_obj = model.transcribe(
+            tmp_path,
+            word_timestamps=True,
+            beam_size=5,
+            best_of=5,
+            vad_filter=True,
+            vad_parameters=dict(
+                min_silence_duration_ms=400,
+                speech_pad_ms=250,
+                threshold=0.5,
+            ),
+            temperature=[0.0, 0.2, 0.4, 0.8],
+            condition_on_previous_text=False,
+            compression_ratio_threshold=2.4,
+            log_prob_threshold=-1.0,
+            no_speech_threshold=0.6,
+            language=language if language else None,
+        )
+        return list(segments_gen), info_obj
+
     try:
-        # Protect memory with concurrency semaphore
         async with CONCURRENCY_SEMAPHORE:
-            # Run state-of-the-art Faster-Whisper with high-precision parameters:
-            # - word_timestamps=True for true acoustic word boundaries
-            # - vad_filter=True (Silero VAD) to eliminate silence, breath, and background hum
-            # - beam_size=5 for maximum linguistic accuracy
-            # - condition_on_previous_text=False to completely prevent hallucination loops
-            # - temperature fallback list to recover gracefully if a segment is challenging
-            segments, info = model.transcribe(
-                tmp_path,
-                word_timestamps=True,
-                beam_size=5,
-                best_of=5,
-                vad_filter=True,
-                vad_parameters=dict(
-                    min_silence_duration_ms=400,
-                    speech_pad_ms=250,
-                    threshold=0.5,
-                ),
-                temperature=[0.0, 0.2, 0.4, 0.8],
-                condition_on_previous_text=False,
-                compression_ratio_threshold=2.4,
-                log_prob_threshold=-1.0,
-                no_speech_threshold=0.6,
-                language=language if language else None,
-            )
+            segments, info = await asyncio.to_thread(_run_whisper_sync)
 
-            tokens: List[Dict[str, Any]] = []
-            token_index = 0
-
-            for segment in segments:
-                if segment.words:
-                    for w in segment.words:
-                        word_str = w.word.strip()
-                        if word_str:
-                            tokens.append({
-                                "word": word_str,
-                                "start": round(w.start, 2),
-                                "end": round(max(w.start + 0.05, w.end), 2),
-                                "index": token_index,
-                            })
-                            token_index += 1
-                elif segment.text.strip():
-                    # Segment-level fallback with proportional distribution
-                    words_in_seg = segment.text.strip().split()
-                    if words_in_seg:
-                        step = (segment.end - segment.start) / len(words_in_seg)
-                        for sw_idx, sw in enumerate(words_in_seg):
-                            s = segment.start + sw_idx * step
-                            e = max(s + 0.05, min(segment.end, s + step))
-                            tokens.append({
-                                "word": sw,
-                                "start": round(s, 2),
-                                "end": round(e, 2),
-                                "index": token_index,
-                            })
-                            token_index += 1
-
+        tokens = segments_to_tokens(segments)
         if not tokens:
             raise HTTPException(
                 status_code=422,
-                detail="No audible spoken words could be recognized in this audio file. Please ensure the recording contains audible speech."
+                detail="No audible spoken words could be recognized in this audio file.",
             )
 
         duration = tokens[-1]["end"]
         elapsed_sec = time.time() - start_perf
         speedup = duration / max(0.01, elapsed_sec)
-
         clean_name = os.path.splitext(file.filename)[0].replace("_", " ").replace("-", " ").title()
 
-        # Extract real scholarly lexicon from the actual words spoken
         lexicon = extract_scholarly_lexicon(tokens, duration)
-
-        # Build dynamic marginalia anchored along the timeline
         marginalia = build_dynamic_marginalia(tokens, duration, file.filename)
 
-        # Construct milestone dossier
         dossier = {
             "pageNumber": 10,
-            "wordCountTrigger": 2500,
+            "wordCountTrigger": min(2500, len(tokens)),
             "audioTimestampSec": round(duration * 0.7, 1),
             "timeFormatted": f"{int(duration * 0.7 // 60)}:{int(duration * 0.7 % 60):02d}",
             "unspokenSubtext": f"Real acoustic transcription of {len(tokens)} spoken words from '{file.filename}'.",
             "subtextScore": "99% Verbatim Acoustic Rigor",
             "thesisSteps": [
-                {"pages": "Pages 1-3", "description": f"Acoustic decoding via Faster-Whisper ({model_size} on {cached_device_info['display_name']})."},
+                {"pages": "Pages 1-3", "description": f"Acoustic decoding via Faster-Whisper ({model_size} on {hw['display_name']})."},
                 {"pages": "Pages 4-7", "description": "Verbatim word timestamps synchronized to audio playback."},
                 {"pages": "Pages 8-10", "description": f"Parchment illumination with {len(lexicon)} contextual vocabulary terms."},
             ],
             "actionableBridge": "Reflect on this audio session using the Notes & Annotations tab.",
             "studyFlashcards": [
                 {"q": "How many words were transcribed from this audio?", "a": f"Exactly {len(tokens)} verbatim words."},
-                {"q": "What engine processed this transcription?", "a": f"Faster-Whisper ({model_size}) with Silero VAD on {cached_device_info['display_name']} in {elapsed_sec:.2f}s ({speedup:.1f}x real-time)."}
+                {"q": "What engine processed this transcription?", "a": f"Faster-Whisper ({model_size}) with Silero VAD on {hw['display_name']} in {elapsed_sec:.2f}s ({speedup:.1f}x real-time)."},
             ],
         }
 
@@ -634,26 +640,24 @@ async def transcribe_audio(
             "meta": {
                 "engine": "faster-whisper",
                 "model": model_size,
-                "hardware": cached_device_info["display_name"],
+                "hardware": hw["display_name"],
                 "durationSec": round(duration, 2),
                 "transcriptionTimeSec": round(elapsed_sec, 2),
                 "speedupFactor": f"{speedup:.1f}x faster than real-time",
                 "language": info.language,
-                "languageProbability": round(info.language_probability, 3)
-            }
+                "languageProbability": round(info.language_probability, 3),
+            },
         }
 
     except HTTPException:
         raise
     except Exception as exc:
-        # PyAV/FFmpeg can reject damaged or codec-incompatible containers. Return
-        # a useful client error instead of a generic 500 while preserving cleanup.
         raise HTTPException(
             status_code=422,
-            detail=f"Unable to decode or transcribe this audio file: {exc}. Try exporting it as WAV, MP3, or M4A."
+            detail=f"Unable to decode or transcribe this audio file: {exc}. Try WAV, MP3, or M4A.",
         ) from exc
     finally:
-        if os.path.exists(tmp_path):
+        if tmp_path and os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
             except Exception:
@@ -670,26 +674,24 @@ class TranscribeUrlRequest(BaseModel):
 async def transcribe_url_endpoint(
     req: TranscribeUrlRequest,
     request: Request,
-    authorization: Optional[str] = Header(None)
+    authorization: Optional[str] = Header(None),
 ):
     """
-    Downloads or extracts audio from any URL (YouTube Videos, YouTube Shorts,
-    SoundCloud, Podcasts, direct audio links) using yt-dlp and transcribes
-    with microsecond-precision verbatim word timestamps via Faster-Whisper.
+    Extracts audio from YouTube/Podcasts/Web URLs as iOS-Safari-compatible M4A (AAC)
+    and transcribes with Faster-Whisper word-level timestamps.
     """
     client_ip = request.client.host if request.client else "127.0.0.1"
     enforce_rate_limit(client_ip)
 
     required_token = os.environ.get("AURA_AUTH_TOKEN")
-    if required_token:
-        expected_header = f"Bearer {required_token}"
-        if authorization != expected_header:
-            raise HTTPException(status_code=401, detail="Unauthorized: invalid or missing audio engine token.")
+    if required_token and authorization != f"Bearer {required_token}":
+        raise HTTPException(status_code=401, detail="Unauthorized: invalid or missing audio engine token.")
 
     url = req.url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="No URL provided.")
 
+    hw = get_hardware_info()
     model_size = req.model_size if req.model_size in ("tiny", "base", "small") else "tiny"
     model = get_whisper_model(model_size)
     if not model:
@@ -697,8 +699,7 @@ async def transcribe_url_endpoint(
 
     start_perf = time.time()
     tmp_path = None
-    title = "Web Audio Stream"
-    duration = 0.0
+    is_success = False
 
     try:
         import yt_dlp
@@ -706,120 +707,96 @@ async def transcribe_url_endpoint(
         tmp_id = f"aura_stream_{int(time.time())}_{os.getpid()}"
         out_template = os.path.join(AUDIO_CACHE_DIR, f"{tmp_id}.%(ext)s")
 
+        # Transcode to M4A (AAC) so audio plays natively on iPhone Safari, Android Chrome, and Desktop
         ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': out_template,
-            'quiet': True,
-            'no_warnings': True,
-            'overwrites': True,
-            'max_filesize': MAX_UPLOAD_SIZE,
+            "format": "bestaudio[ext=m4a]/bestaudio/best",
+            "outtmpl": out_template,
+            "quiet": True,
+            "no_warnings": True,
+            "overwrites": True,
+            "max_filesize": MAX_UPLOAD_SIZE,
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "m4a",
+                    "preferredquality": "128",
+                }
+            ],
         }
 
-        is_success = False
+        def download_worker():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                raw_path = ydl.prepare_filename(info)
+                base_no_ext = os.path.splitext(raw_path)[0]
+                m4a_path = f"{base_no_ext}.m4a"
+                target_file = m4a_path if os.path.isfile(m4a_path) else raw_path
+                return (
+                    info.get("title") or "Web Audio Stream",
+                    float(info.get("duration") or 0.0),
+                    target_file,
+                )
+
+        def transcribe_worker(audio_path: str):
+            segments_gen, info_obj = model.transcribe(
+                audio_path,
+                beam_size=5,
+                word_timestamps=True,
+                vad_filter=True,
+                vad_parameters=dict(
+                    min_silence_duration_ms=450,
+                    speech_pad_ms=250,
+                ),
+                language=req.language,
+            )
+            return list(segments_gen), info_obj
 
         async with CONCURRENCY_SEMAPHORE:
-            loop = asyncio.get_event_loop()
+            title, duration, tmp_path = await asyncio.to_thread(download_worker)
+            segments, info = await asyncio.to_thread(transcribe_worker, tmp_path)
 
-            def download_worker():
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    target_file = ydl.prepare_filename(info)
-                    return (
-                        info.get('title') or 'Web Audio Stream',
-                        float(info.get('duration') or 0.0),
-                        target_file
-                    )
+        tokens = segments_to_tokens(segments)
+        if not tokens:
+            raise HTTPException(
+                status_code=422,
+                detail="No audible spoken words could be recognized from this web link.",
+            )
 
-            title, duration, tmp_path = await loop.run_in_executor(None, download_worker)
+        final_duration = tokens[-1]["end"] if tokens else duration
+        elapsed_sec = time.time() - start_perf
+        speedup = final_duration / max(0.01, elapsed_sec)
 
-            def transcribe_worker():
-                segments, info = model.transcribe(
-                    tmp_path,
-                    beam_size=5,
-                    word_timestamps=True,
-                    vad_filter=True,
-                    vad_parameters=dict(
-                        min_silence_duration_ms=450,
-                        speech_pad_ms=250,
-                    ),
-                    language=req.language,
-                )
-                return list(segments), info
+        lexicon = extract_scholarly_lexicon(tokens, final_duration)
+        marginalia = build_dynamic_marginalia(tokens, final_duration, title)
 
-            segments, info = await loop.run_in_executor(None, transcribe_worker)
+        audio_rel_url = f"/audio/{os.path.basename(tmp_path)}" if tmp_path else None
+        is_success = True
 
-            tokens: List[Dict[str, Any]] = []
-            token_index = 0
-
-            for segment in segments:
-                if segment.words:
-                    for w in segment.words:
-                        word_str = w.word.strip()
-                        if word_str:
-                            tokens.append({
-                                "word": word_str,
-                                "start": round(w.start, 2),
-                                "end": round(max(w.start + 0.05, w.end), 2),
-                                "index": token_index,
-                            })
-                            token_index += 1
-                elif segment.text.strip():
-                    words_in_seg = segment.text.strip().split()
-                    if words_in_seg:
-                        step = (segment.end - segment.start) / len(words_in_seg)
-                        for sw_idx, sw in enumerate(words_in_seg):
-                            s = segment.start + sw_idx * step
-                            e = max(s + 0.05, min(segment.end, s + step))
-                            tokens.append({
-                                "word": sw,
-                                "start": round(s, 2),
-                                "end": round(e, 2),
-                                "index": token_index,
-                            })
-                            token_index += 1
-
-            if not tokens:
-                raise HTTPException(
-                    status_code=422,
-                    detail="No audible spoken words could be recognized from this web link."
-                )
-
-            final_duration = tokens[-1]["end"] if tokens else duration
-            elapsed_sec = time.time() - start_perf
-            speedup = final_duration / max(0.01, elapsed_sec)
-
-            lexicon = extract_scholarly_lexicon(tokens, final_duration)
-            marginalia = build_dynamic_marginalia(tokens, final_duration, title)
-
-            device_name = cached_device_info["display_name"] if cached_device_info else "CPU"
-            audio_rel_url = f"/audio/{os.path.basename(tmp_path)}" if tmp_path else None
-            is_success = True
-
-            return {
-                "title": title.upper(),
-                "chapter": f"CH. I • DIRECT WEB IMPORT ({len(tokens)} WORDS)",
-                "tokens": tokens,
-                "marginalia": marginalia,
-                "lexicon": lexicon,
-                "duration": round(final_duration, 2),
-                "audio_url": audio_rel_url,
-                "meta": {
-                    "engine": "faster-whisper+yt-dlp",
-                    "model": model_size,
-                    "hardware": device_name,
-                    "durationSec": round(final_duration, 2),
-                    "transcriptionTimeSec": round(elapsed_sec, 2),
-                    "speedupFactor": f"{speedup:.1f}x faster than real-time",
-                    "language": info.language,
-                }
-            }
+        return {
+            "title": title.upper(),
+            "chapter": f"CH. I • DIRECT WEB IMPORT ({len(tokens)} WORDS)",
+            "tokens": tokens,
+            "marginalia": marginalia,
+            "lexicon": lexicon,
+            "duration": round(final_duration, 2),
+            "audio_url": audio_rel_url,
+            "meta": {
+                "engine": "faster-whisper+yt-dlp",
+                "model": model_size,
+                "hardware": hw["display_name"],
+                "durationSec": round(final_duration, 2),
+                "transcriptionTimeSec": round(elapsed_sec, 2),
+                "speedupFactor": f"{speedup:.1f}x faster than real-time",
+                "language": info.language,
+            },
+        }
 
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(
             status_code=422,
-            detail=f"Unable to fetch or transcribe web link: {exc}"
+            detail=f"Unable to fetch or transcribe web link: {exc}",
         ) from exc
     finally:
         if not is_success and tmp_path and os.path.exists(tmp_path):
@@ -829,28 +806,28 @@ async def transcribe_url_endpoint(
                 pass
 
 
-# Serve production frontend if built so mobile devices on LAN can access http://<LAN_IP>:8000/
+# Serve production frontend so mobile devices on LAN can open http://<LAN_IP>:8000/
 dist_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dist")
 if os.path.isdir(dist_dir):
     from fastapi.staticfiles import StaticFiles
+
     app.mount("/", StaticFiles(directory=dist_dir, html=True), name="static")
 
 
 if __name__ == "__main__":
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
 
     hw = get_hardware_info()
     lan_ip = hw["lan_ip"]
 
     print("\n==================================================================")
-    print("  * AuRA_AuDTEX State-of-the-Art Local Transcriber Engine")
+    print("  * AuRA_AuDTEX Cross-Platform Transcriber Engine")
     print(f"  * Hardware Acceleration: {hw['display_name']}")
-    print(f"  * Local Access:   http://localhost:8000")
+    print("  * Local Access:   http://localhost:8000")
     print(f"  * Network Access: http://{lan_ip}:8000")
     print("==================================================================")
 
-    # Preload default model into memory for 0ms initial cold start
     print(f"[*] Preloading default model ('tiny') on {hw['display_name']}...")
     get_whisper_model("tiny")
     print("[+] Transcriber ready for incoming requests!\n")
@@ -859,4 +836,5 @@ if __name__ == "__main__":
     bind_port = int(os.environ.get("AURA_PORT", 8000))
     print(f"[*] Binding server to http://{bind_host}:{bind_port} (LAN & local access enabled)...")
     import uvicorn
+
     uvicorn.run(app, host=bind_host, port=bind_port)
