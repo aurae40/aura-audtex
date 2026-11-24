@@ -24,7 +24,14 @@ import {
   downloadTranscriptVocabulary,
 } from './services/lexiconService';
 import { extractTranscriptVocabulary } from './services/dictionaryPackService';
-import { LiveMeetingEngine, type FlaggedMoment } from './services/liveAudioService';
+import {
+  LiveMeetingEngine,
+  checkMicrophoneEnvironment,
+  type LiveSessionState,
+  type LiveCaptureSource,
+  type FlaggedMoment,
+} from './services/liveAudioService';
+import { LiveMeetingCockpit, LiveMicHelpModal } from './components/LiveMeetingCockpit';
 import { WebLinkImportModal } from './components/WebLinkImportModal';
 import { LiveMeetingModal } from './components/LiveMeetingModal';
 import {
@@ -605,6 +612,8 @@ export function App() {
   const [isLiveRecording, setIsLiveRecording] = useState(false);
   const [isLivePaused, setIsLivePaused] = useState(false);
   const [liveRecordingDuration, setLiveRecordingDuration] = useState(0);
+  const [liveSessionState, setLiveSessionState] = useState<LiveSessionState | null>(null);
+  const [micHelpMessage, setMicHelpMessage] = useState<string | null>(null);
   const [liveFlaggedMoments, setLiveFlaggedMoments] = useState<FlaggedMoment[]>([]);
   const [liveAudioSource, setLiveAudioSource] = useState<'mic' | 'system'>('mic');
   const [isLiveStreamingWhisper, setIsLiveStreamingWhisper] = useState(false);
@@ -627,6 +636,7 @@ export function App() {
     isCountryModalOpen ||
     isWebLinkModalOpen ||
     isLiveStudioOpen ||
+    Boolean(micHelpMessage) ||
     activeTab !== 'book';
   const pushedHistoryRef = useRef(false);
 
@@ -648,6 +658,8 @@ export function App() {
         setIsSearchGlossaryOpen(false);
       } else if (isWebLinkModalOpen) {
         setIsWebLinkModalOpen(false);
+      } else if (micHelpMessage) {
+        setMicHelpMessage(null);
       } else if (isLiveStudioOpen) {
         setIsLiveStudioOpen(false);
       } else if (isCountryModalOpen) {
@@ -671,6 +683,7 @@ export function App() {
     isFullScreenOpen,
     isSearchGlossaryOpen,
     isWebLinkModalOpen,
+    micHelpMessage,
     isLiveStudioOpen,
     isCountryModalOpen,
     isVaultOpen,
@@ -687,6 +700,7 @@ export function App() {
         if (isFullScreenOpen) handleCloseFullScreen();
         else if (isSearchGlossaryOpen) setIsSearchGlossaryOpen(false);
         else if (isWebLinkModalOpen) setIsWebLinkModalOpen(false);
+        else if (micHelpMessage) setMicHelpMessage(null);
         else if (isLiveStudioOpen) setIsLiveStudioOpen(false);
         else if (isCountryModalOpen) setIsCountryModalOpen(false);
         else if (isVaultOpen) setIsVaultOpen(false);
@@ -703,6 +717,7 @@ export function App() {
     isFullScreenOpen,
     isSearchGlossaryOpen,
     isWebLinkModalOpen,
+    micHelpMessage,
     isLiveStudioOpen,
     isCountryModalOpen,
     isVaultOpen,
@@ -749,23 +764,38 @@ export function App() {
   };
 
   const handleStartLiveMeeting = async (options: {
-    audioSource: 'mic' | 'system';
+    audioSource: 'mic' | 'system' | LiveCaptureSource;
     deviceId?: string;
-    language: string;
+    language?: string;
   }) => {
+    const source: LiveCaptureSource =
+      options.audioSource === 'system' || options.audioSource === 'system_tab'
+        ? 'system_tab'
+        : 'microphone';
+
+    if (source === 'microphone') {
+      const env = checkMicrophoneEnvironment();
+      if (!env.canRecord) {
+        setMicHelpMessage(
+          env.userMessage || 'HTTPS connection required for live microphone access.'
+        );
+        return;
+      }
+    }
+
     pausePlay();
     setActiveTab('book');
     setLiveRecordingDuration(0);
     setIsLivePaused(false);
     setLiveFlaggedMoments([]);
-    setLiveAudioSource(options.audioSource);
+    setLiveAudioSource(source === 'system_tab' ? 'system' : 'mic');
     const liveTitle = `Live Meeting · ${new Date().toLocaleTimeString([], {
       hour: '2-digit',
       minute: '2-digit',
     })}`;
     setBookTitle(liveTitle);
     setChapterTitle(
-      options.audioSource === 'system'
+      source === 'system_tab'
         ? 'Live Meeting / Tab Audio Capture'
         : 'Live Microphone Diarization'
     );
@@ -782,9 +812,10 @@ export function App() {
           setDuration((prev) => Math.max(prev, token.end + 1));
         },
         (state) => {
+          setLiveSessionState(state);
           setLiveRecordingDuration(state.durationSec);
           setIsLivePaused(state.isPaused);
-          setLiveFlaggedMoments(state.flaggedMoments || state.bookmarks || []);
+          setLiveFlaggedMoments(state.bookmarks || state.flaggedMoments || []);
           setIsLiveStreamingWhisper(Boolean(state.isStreamingWhisper));
           setIsLiveWakeLockActive(Boolean(state.wakeLockActive));
           setLiveCurrentSpeaker(state.currentSpeaker);
@@ -810,22 +841,21 @@ export function App() {
       );
 
       await engine.start({
-        audioSource: options.audioSource,
+        source,
         deviceId: options.deviceId,
-        language: options.language,
-        chunkDurationSec: 6,
-        useWhisperStreaming: true,
+        language: options.language || preferredWhisperLang,
       });
 
       liveEngineRef.current = engine;
       setIsLiveRecording(true);
       setToastNotification({
-        message: `Live Studio Active (${options.audioSource === 'system' ? 'Meeting Tab' : 'Mic'})! Words illuminate live.`,
+        message: `Live Studio Active (${source === 'system_tab' ? 'Meeting Tab' : 'Mic'})! Words illuminate live.`,
         type: 'info',
       });
     } catch (err: any) {
       console.error('Failed to start live engine:', err);
       setIsLiveRecording(false);
+      setLiveSessionState(null);
       throw err;
     }
   };
@@ -834,6 +864,7 @@ export function App() {
     if (!liveEngineRef.current) return;
     setIsLiveRecording(false);
     setIsLivePaused(false);
+    setLiveSessionState(null);
     setToastNotification({
       message: 'Finishing live recording & structuring session...',
       type: 'info',
@@ -847,7 +878,7 @@ export function App() {
       const finalAudioBlob = result.audioBlob;
       let finalAudioUrl = result.audioUrl;
       const finalDuration = Math.max(1, result.duration || liveRecordingDuration);
-      const flagged = result.flaggedMoments || [];
+      const bookmarks = result.bookmarks || (result as any).flaggedMoments || [];
 
       if (finalAudioBlob && finalAudioBlob.size > 0) {
         buildAcousticTrackFromBlob(finalAudioBlob).catch(() => {});
@@ -909,8 +940,39 @@ export function App() {
       setBookTitle(liveTitle);
       setChapterTitle('Live Transcript & Speaker Diarization');
 
-      // Convert flagged moments to session reflections so they're searchable and highlighted
-      const flaggedReflections: UserReflection[] = flagged.map((f) => {
+      // Convert pinned bookmarks into UserHighlight entries saved on the live session
+      const userHighlightsFromPins: UserHighlight[] = bookmarks.map((pin) => {
+        const matchingTokens = finalTokens.filter(
+          (t) => Math.abs(t.start - pin.timestampSec) <= 3.5
+        );
+        const indices =
+          matchingTokens.length > 0
+            ? matchingTokens.map((t) => t.index)
+            : [Math.min(Math.max(0, finalTokens.length - 1), Math.floor(pin.timestampSec))];
+        const quoteText =
+          matchingTokens.length > 0
+            ? matchingTokens.map((t) => t.word).join(' ')
+            : pin.label;
+        return {
+          id: pin.id || `hl_pin_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          sessionId: liveSessionId,
+          wordIndices: indices,
+          text: quoteText,
+          color: '#06b6d4',
+          note: pin.label,
+          createdAt: new Date().toISOString(),
+        };
+      });
+
+      if (userHighlightsFromPins.length > 0) {
+        setAllHighlights((prev) => ({
+          ...prev,
+          [liveSessionId]: [...(prev[liveSessionId] || []), ...userHighlightsFromPins],
+        }));
+      }
+
+      // Convert pinned bookmarks to session reflections so they're searchable and permanent
+      const flaggedReflections: UserReflection[] = bookmarks.map((f) => {
         const timeFmt =
           f.timeFormatted ||
           `${Math.floor(f.timestampSec / 60)}:${Math.floor(f.timestampSec % 60)
@@ -980,7 +1042,7 @@ export function App() {
           ],
         },
         lexicon: extractTranscriptVocabulary(finalTokens),
-        highlights: [],
+        highlights: userHighlightsFromPins,
         reflections: flaggedReflections,
         userSummary: '',
         hasAudio: Boolean(finalAudioBlob),
@@ -1039,12 +1101,26 @@ export function App() {
     }
   };
 
-  const handleToggleLiveMeeting = async () => {
+  const handleToggleLiveMeeting = async (source: LiveCaptureSource = 'microphone') => {
     if (isLiveRecording) {
       await handleStopLiveMeeting();
-    } else {
-      setIsLiveStudioOpen(true);
+      return;
     }
+
+    if (source === 'microphone' || (source as string) === 'mic') {
+      const env = checkMicrophoneEnvironment();
+      if (!env.canRecord) {
+        setMicHelpMessage(
+          env.userMessage || 'HTTPS connection required for live microphone access.'
+        );
+        return;
+      }
+    }
+
+    await handleStartLiveMeeting({
+      audioSource: source,
+      language: preferredWhisperLang,
+    });
   };
 
   const handleImportTranscriptDirect = (
@@ -2138,24 +2214,21 @@ export function App() {
             onToggleFullscreen={handleToggleFullscreen}
           />
 
-          {/* Real-Time Live Recording Status Ribbon */}
-          {isLiveRecording && (
-            <div className="mx-4 mt-2 mb-1 px-3 py-2 rounded-2xl bg-rose-500/15 border border-rose-500/40 backdrop-blur-md flex items-center justify-between text-xs text-rose-200 animate-in fade-in slide-in-from-top-1 select-none shadow-sm">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping shrink-0" />
-                <span className="font-mono font-bold uppercase tracking-wider text-[11px] text-rose-300 shrink-0">
-                  REC [{Math.floor(liveRecordingDuration / 60)}:{(Math.floor(liveRecordingDuration % 60)).toString().padStart(2, '0')}]
-                </span>
-                <span className="text-[11px] text-stone-300 truncate hidden xs:inline">· Live Intelligence</span>
-              </div>
-              <button
-                onClick={handleToggleLiveMeeting}
-                className="px-2.5 py-1 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-semibold text-[11px] transition active:scale-95 shadow-sm shrink-0"
-              >
-                Stop & Save
-              </button>
-            </div>
-          )}
+          {/* Studio Live Recording Cockpit (7-Bar Acoustic VU, Pause/Resume, 1-Tap Flag Pin) */}
+          <LiveMeetingCockpit
+            liveState={liveSessionState}
+            onTogglePause={() => liveEngineRef.current?.togglePause()}
+            onAddBookmark={() => {
+              const pin = liveEngineRef.current?.addBookmarkPin();
+              if (pin) {
+                setToastNotification({
+                  message: `Pinned "${pin.label}" at ${formatTime(pin.timestampSec)}`,
+                  type: 'info',
+                });
+              }
+            }}
+            onStopAndSave={() => handleToggleLiveMeeting()}
+          />
 
           {/* Active Tab Viewport */}
           <div className="flex-1 overflow-hidden relative flex flex-col min-h-0">
@@ -2821,6 +2894,20 @@ export function App() {
           onImportTranscriptDirect={handleImportTranscriptDirect}
         />
       )}
+
+      {/* Live Microphone / Secure Context Help Modal with Instant Native Voice Capture Fallback */}
+      <LiveMicHelpModal
+        isOpen={Boolean(micHelpMessage)}
+        reasonMessage={micHelpMessage || ''}
+        canCaptureSystemAudio={
+          typeof navigator !== 'undefined' &&
+          Boolean(navigator.mediaDevices?.getDisplayMedia) &&
+          window.innerWidth >= 768
+        }
+        onClose={() => setMicHelpMessage(null)}
+        onStartSource={(src) => handleToggleLiveMeeting(src)}
+        onFallbackNativeAudioFile={(file) => setStagedImportFile(file)}
+      />
 
       {/* Live Meeting & Lecture Studio Modal v2 */}
       <LiveMeetingModal
