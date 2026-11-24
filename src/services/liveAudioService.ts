@@ -1,5 +1,7 @@
 import type { WordToken, SpeakerInfo } from '../types';
 import { estimatePitch, LiveDiarizer, diarizeTokens, extractSpeakerMap } from './diarizationService';
+import { isIOSWebKit } from './hardwareDetectionService';
+import { selectSupportedRecorderMime } from './voiceDictationService';
 
 export interface LiveSessionState {
   isRecording: boolean;
@@ -54,10 +56,12 @@ declare global {
 export class LiveMeetingEngine {
   private mediaStream: MediaStream | null = null;
   private mediaRecorder: MediaRecorder | null = null;
+  private selectedMime = '';
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private recognition: SpeechRecognitionInstance | null = null;
   private recordedChunks: Blob[] = [];
+  private recognitionFatalError = false;
 
   private isRunning = false;
   private startTime = 0;
@@ -103,6 +107,7 @@ export class LiveMeetingEngine {
     });
 
     this.isRunning = true;
+    this.recognitionFatalError = false;
     this.startTime = Date.now();
     this.committedTokens = [];
     this.tokenIndexCounter = 0;
@@ -111,11 +116,15 @@ export class LiveMeetingEngine {
     this.diarizer.reset();
     this.currentSpeaker = 'Speaker 1';
 
-    // 2. Setup AudioContext Analyser for real-time Pitch Diarization
+    // 2. Setup AudioContext Analyser for real-time Pitch Diarization (with mobile resume)
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) {
         this.audioContext = new AudioCtx();
+        const state = this.audioContext.state as string;
+        if (state === 'suspended' || state === 'interrupted') {
+          await this.audioContext.resume().catch(() => {});
+        }
         const source = this.audioContext.createMediaStreamSource(this.mediaStream);
         this.analyser = this.audioContext.createAnalyser();
         this.analyser.fftSize = 2048;
@@ -139,39 +148,30 @@ export class LiveMeetingEngine {
       console.warn('Live pitch analyser setup warning:', e);
     }
 
-    // 3. Setup MediaRecorder for parallel audio capture
+    // 3. Setup MediaRecorder with browser-native MIME (AAC/MP4 on iOS Safari, Opus/WebM on Chrome)
     try {
-      const mimeTypes = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/ogg;codecs=opus',
-        'audio/mp4',
-        'audio/aac',
-      ];
-      let selectedMime = '';
-      for (const m of mimeTypes) {
-        if (MediaRecorder.isTypeSupported(m)) {
-          selectedMime = m;
-          break;
-        }
+      if (typeof MediaRecorder !== 'undefined') {
+        this.selectedMime = selectSupportedRecorderMime();
+        const options = this.selectedMime ? { mimeType: this.selectedMime } : undefined;
+        this.mediaRecorder = new MediaRecorder(this.mediaStream, options);
+
+        this.mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            this.recordedChunks.push(event.data);
+          }
+        };
+
+        this.mediaRecorder.start(500);
       }
-
-      const options = selectedMime ? { mimeType: selectedMime } : undefined;
-      this.mediaRecorder = new MediaRecorder(this.mediaStream, options);
-
-      this.mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          this.recordedChunks.push(event.data);
-        }
-      };
-
-      this.mediaRecorder.start(500); // chunk every 500ms
     } catch (e) {
       console.warn('MediaRecorder parallel recording warning:', e);
     }
 
-    // 4. Setup Speech Recognition Engine for streaming tokens
-    this.setupSpeechRecognition();
+    // 4. Setup live Web Speech streaming (skipped on iOS Safari while MediaRecorder holds the mic
+    //    so AVAudioSession never kills the recording; App.tsx transcribes the recorded .m4a cleanly on stop)
+    if (!isIOSWebKit()) {
+      this.setupSpeechRecognition();
+    }
 
     // 5. Start elapsed duration timer
     this.timerInterval = window.setInterval(() => {
@@ -185,7 +185,6 @@ export class LiveMeetingEngine {
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRec) {
-      console.warn('SpeechRecognition API not available in this browser. Live audio recording is active; transcription will process upon session completion.');
       return;
     }
 
@@ -205,8 +204,11 @@ export class LiveMeetingEngine {
             this.latestInterimTranscript = '';
             if (!transcript) continue;
 
-            const words = transcript.split(/\s+/);
-            const tokenDuration = Math.max(0.2, (nowSec - this.lastTokenTime) / (words.length || 1));
+            const words = transcript.split(/\s+/).filter(Boolean);
+            const tokenDuration = Math.max(
+              0.2,
+              (nowSec - this.lastTokenTime) / Math.max(1, words.length)
+            );
 
             words.forEach((w, wIdx) => {
               const start = Math.max(0, this.lastTokenTime + wIdx * tokenDuration);
@@ -226,27 +228,31 @@ export class LiveMeetingEngine {
 
             this.lastTokenTime = nowSec;
             this.notifyState();
-          } else {
-            // Preserve interim text so that abrupt stops never discard spoken words
-            if (res[0] && res[0].transcript) {
-              this.latestInterimTranscript = res[0].transcript;
-            }
+          } else if (res[0]?.transcript) {
+            this.latestInterimTranscript = res[0].transcript;
           }
         }
       };
 
       this.recognition.onerror = (event: any) => {
-        console.warn('Speech recognition event:', event?.error);
+        const err = event?.error;
+        console.warn('Speech recognition event:', err);
+        if (err === 'not-allowed' || err === 'service-not-allowed' || err === 'audio-capture') {
+          this.recognitionFatalError = true;
+        }
       };
 
       this.recognition.onend = () => {
-        // Automatically restart speech recognition if live meeting is still running
-        if (this.isRunning && this.recognition) {
-          try {
-            this.recognition.start();
-          } catch {
-            // ignore
-          }
+        if (this.isRunning && this.recognition && !this.recognitionFatalError) {
+          window.setTimeout(() => {
+            if (this.isRunning && this.recognition && !this.recognitionFatalError) {
+              try {
+                this.recognition.start();
+              } catch {
+                // ignore restart race
+              }
+            }
+          }, 250);
         }
       };
 
@@ -265,7 +271,6 @@ export class LiveMeetingEngine {
   }> {
     this.isRunning = false;
 
-    // Clear intervals
     if (this.timerInterval) {
       window.clearInterval(this.timerInterval);
       this.timerInterval = null;
@@ -275,9 +280,9 @@ export class LiveMeetingEngine {
       this.pitchInterval = null;
     }
 
-    // Stop recognition
     if (this.recognition) {
       try {
+        this.recognition.onend = null;
         this.recognition.stop();
       } catch {
         // ignore
@@ -285,11 +290,13 @@ export class LiveMeetingEngine {
       this.recognition = null;
     }
 
-    // Flush any pending interim speech transcript before stopping
     if (this.latestInterimTranscript && this.latestInterimTranscript.trim()) {
       const nowSec = (Date.now() - this.startTime) / 1000;
-      const words = this.latestInterimTranscript.trim().split(/\s+/);
-      const tokenDuration = Math.max(0.2, (nowSec - this.lastTokenTime) / (words.length || 1));
+      const words = this.latestInterimTranscript.trim().split(/\s+/).filter(Boolean);
+      const tokenDuration = Math.max(
+        0.2,
+        (nowSec - this.lastTokenTime) / Math.max(1, words.length)
+      );
       words.forEach((w, wIdx) => {
         const start = Math.max(0, this.lastTokenTime + wIdx * tokenDuration);
         const end = Math.min(nowSec, start + tokenDuration);
@@ -306,35 +313,53 @@ export class LiveMeetingEngine {
       this.latestInterimTranscript = '';
     }
 
-    // Stop MediaRecorder and wait for final data
+    const fallbackMime = this.selectedMime || (isIOSWebKit() ? 'audio/mp4' : 'audio/webm');
+
     const finalAudioBlob: Blob | null = await new Promise((resolve) => {
       if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+        const timeout = window.setTimeout(() => {
+          resolve(
+            this.recordedChunks.length > 0
+              ? new Blob(this.recordedChunks, { type: this.mediaRecorder?.mimeType || fallbackMime })
+              : null
+          );
+        }, 1200);
+
         this.mediaRecorder.onstop = () => {
-          const mime = this.mediaRecorder?.mimeType || 'audio/webm';
-          const blob = new Blob(this.recordedChunks, { type: mime });
-          resolve(blob);
+          window.clearTimeout(timeout);
+          const mime = this.mediaRecorder?.mimeType || fallbackMime;
+          resolve(
+            this.recordedChunks.length > 0 ? new Blob(this.recordedChunks, { type: mime }) : null
+          );
         };
+
         try {
           if (this.mediaRecorder.state === 'recording') {
             this.mediaRecorder.requestData();
           }
           this.mediaRecorder.stop();
         } catch {
-          resolve(null);
+          window.clearTimeout(timeout);
+          resolve(
+            this.recordedChunks.length > 0
+              ? new Blob(this.recordedChunks, { type: fallbackMime })
+              : null
+          );
         }
       } else {
-        const mime = this.mediaRecorder?.mimeType || 'audio/webm';
-        resolve(this.recordedChunks.length > 0 ? new Blob(this.recordedChunks, { type: mime }) : null);
+        resolve(
+          this.recordedChunks.length > 0
+            ? new Blob(this.recordedChunks, { type: fallbackMime })
+            : null
+        );
       }
     });
 
-    // Stop stream tracks
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());
       this.mediaStream = null;
     }
 
-    // Close AudioContext
     if (this.audioContext && this.audioContext.state !== 'closed') {
       try {
         await this.audioContext.close();
@@ -347,7 +372,6 @@ export class LiveMeetingEngine {
     const duration = (Date.now() - this.startTime) / 1000;
     const audioUrl = finalAudioBlob ? URL.createObjectURL(finalAudioBlob) : null;
 
-    // Run automated speaker diarization across tokens to detect speaker turns
     const diarizedTokens = diarizeTokens(this.committedTokens);
     const speakers = extractSpeakerMap(diarizedTokens);
 
