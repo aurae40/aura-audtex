@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aura-audtex-pwa-v13';
+const CACHE_NAME = 'aura-audtex-pwa-v14';
 const assetUrl = (path) => new URL(path, self.registration.scope).toString();
 const STATIC_ASSETS = ['index.html', 'manifest.json', 'favicon.svg', 'icons.svg'].map(assetUrl);
 
@@ -41,7 +41,10 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/audio/') ||
     url.pathname.endsWith('/health') ||
     url.pathname.endsWith('/models') ||
-    url.pathname.includes('/transcribe')
+    url.pathname.includes('/transcribe') ||
+    url.pathname.endsWith('/llm-status') ||
+    url.pathname.endsWith('/analyze') ||
+    url.pathname.endsWith('/ask')
   ) {
     return;
   }
