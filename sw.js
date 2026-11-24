@@ -1,97 +1,81 @@
-const CACHE_NAME = 'aura-audtex-pwa-v12';
+const CACHE_NAME = 'aura-audtex-pwa-v13';
 const assetUrl = (path) => new URL(path, self.registration.scope).toString();
 const STATIC_ASSETS = ['index.html', 'manifest.json', 'favicon.svg', 'icons.svg'].map(assetUrl);
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)).then(() => self.skipWaiting()));
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
+    caches.keys().then((keys) =>
+      Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME && !key.includes('transformers') && !key.includes('onnx')) {
-            console.log('[SW] Evicting legacy cache:', key);
             return caches.delete(key);
           }
+          return Promise.resolve();
         })
-      );
-    })
+      )
+    )
   );
   self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+  const req = event.request;
+  if (req.method !== 'GET') return;
 
-  // Do not intercept non-GET requests or backend API calls
-  if (event.request.method !== 'GET') return;
-  if (url.pathname.endsWith('/health') || url.pathname.endsWith('/transcribe')) return;
-  if (url.protocol === 'chrome-extension:' || url.protocol === 'blob:') return;
+  const url = new URL(req.url);
 
-  // CRITICAL FOR SAFARI/IOS WEBKIT:
-  // Bypass Service Worker completely for external model weights CDNs and Range requests.
-  // Safari WebKit fails with "TypeError: Failed to fetch" if a Service Worker intercepts cross-origin Range requests.
+  // Bypass all cross-origin requests (CDNs, HF weights, remote Whisper servers, dictionaries)
+  if (url.origin !== self.location.origin) return;
+
+  // Bypass byte-range requests (critical for iOS Safari <audio> playback and seeking)
+  if (req.headers.has('range')) return;
+
+  // Bypass backend API and cached media stream routes
   if (
-    url.hostname.includes('jsdelivr.net') ||
-    url.hostname.includes('huggingface.co') ||
-    url.hostname.includes('hf.co') ||
-    url.hostname.includes('unpkg.com') ||
-    event.request.headers.has('range')
+    url.pathname.startsWith('/audio/') ||
+    url.pathname.endsWith('/health') ||
+    url.pathname.endsWith('/models') ||
+    url.pathname.includes('/transcribe')
   ) {
     return;
   }
 
-  // Network-First for HTML navigation so updates appear immediately
-  if (event.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')) {
+  // Network-first for HTML navigation so updates arrive immediately
+  if (req.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')) {
     event.respondWith(
-      fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const copy = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+      fetch(req)
+        .then((res) => {
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
           }
-          return networkResponse;
+          return res;
         })
-        .catch(() => caches.match(event.request))
+        .catch(async () => (await caches.match(req)) || (await caches.match(assetUrl('index.html'))) || Response.error())
     );
     return;
   }
 
+  // Stale-while-revalidate for same-origin static assets
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Return cached and refresh in background
-        fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, networkResponse);
-              });
-            }
-          })
-          .catch(() => {});
-        return cachedResponse;
-      }
+    caches.match(req).then((cached) => {
+      const networkFetch = fetch(req)
+        .then((res) => {
+          if (res && res.status === 200 && res.type === 'basic') {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => cached || Response.error());
 
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-          return networkResponse;
-        }
-
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
-
-        return networkResponse;
-      }).catch(() => {
-        // Offline fallback to index.html for navigation requests
-        if (event.request.mode === 'navigate') {
-          return caches.match(assetUrl('index.html'));
-        }
-      });
+      return cached || networkFetch;
     })
   );
 });
