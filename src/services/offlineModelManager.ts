@@ -8,6 +8,7 @@ export interface OfflineModelInfo {
   speed: string;
   target: string;
   languages: string;
+  isMultilingual: boolean;
   isDownloaded: boolean;
   downloadedAt?: string;
   isDownloading?: boolean;
@@ -22,46 +23,57 @@ export const AVAILABLE_OFFLINE_MODELS: Omit<OfflineModelInfo, 'isDownloaded' | '
     name: 'Whisper Tiny (English)',
     sizeMB: 39,
     sizeFormatted: '~39 MB',
-    speed: 'Ultra-fast (~3×–5× real-time)',
-    target: 'Mobile, iPhone/iPad, Low RAM, All Devices',
+    speed: 'Ultra-fast (~4×–6× real-time)',
+    target: 'iPhone, Android, Low RAM, All Devices',
     languages: 'English (Optimized)',
+    isMultilingual: false,
   },
   {
     id: 'whisper-tiny',
-    name: 'Whisper Tiny (Multilingual)',
-    sizeMB: 39,
-    sizeFormatted: '~39 MB',
-    speed: 'Ultra-fast (~3×–5× real-time)',
-    target: 'Mobile, iPhone/iPad, 99 Languages',
-    languages: '99 Languages (Auto-Detect, Spanish, Amharic, etc.)',
+    name: 'Whisper Tiny (99 Languages)',
+    sizeMB: 45,
+    sizeFormatted: '~45 MB',
+    speed: 'Fast (~3×–5× real-time)',
+    target: 'Mobile & Desktop Multilingual Audio',
+    languages: '99 Languages (Amharic, Arabic, Spanish, French, etc.)',
+    isMultilingual: true,
   },
   {
     id: 'whisper-base.en',
     name: 'Whisper Base (English)',
     sizeMB: 74,
     sizeFormatted: '~74 MB',
-    speed: 'High-Accuracy (~1.5×–2× real-time)',
-    target: 'Desktop, High-Performance PCs, Scholarly Audio',
+    speed: 'High Accuracy (~2×–3× real-time)',
+    target: 'Desktop, WebGPU Devices, Scholarly Lectures',
     languages: 'English (Enhanced Vocabulary)',
+    isMultilingual: false,
   },
   {
     id: 'whisper-base',
-    name: 'Whisper Base (Multilingual)',
-    sizeMB: 74,
-    sizeFormatted: '~74 MB',
-    speed: 'High-Accuracy (~1.5×–2× real-time)',
-    target: 'Desktop, High-Performance PCs, 99 Languages',
-    languages: '99 Languages (Auto-Detect, Spanish, Amharic, etc.)',
+    name: 'Whisper Base (99 Languages)',
+    sizeMB: 82,
+    sizeFormatted: '~82 MB',
+    speed: 'High Accuracy Multilingual',
+    target: 'Desktop & High-RAM Tablets/Phones',
+    languages: '99 Languages (High Precision)',
+    isMultilingual: true,
   },
 ];
 
+function urlMatchesExactModel(url: string, modelId: BuiltinWhisperModel): boolean {
+  // Prevent 'whisper-tiny' from falsely matching 'whisper-tiny.en'
+  return (
+    url.includes(`/${modelId}/`) ||
+    url.includes(`onnx-community/${modelId}/`) ||
+    url.endsWith(`/${modelId}`)
+  );
+}
+
 /**
- * Verifies real CacheStorage presence first so iOS Safari storage eviction
+ * Verifies real CacheStorage ONNX weight presence first so iOS Safari storage eviction
  * is detected honestly instead of trusting stale localStorage flags.
  */
-export async function isModelCachedOffline(
-  modelId: BuiltinWhisperModel
-): Promise<boolean> {
+export async function isModelCachedOffline(modelId: BuiltinWhisperModel): Promise<boolean> {
   if (typeof caches !== 'undefined') {
     try {
       const cacheNames = await caches.keys();
@@ -71,9 +83,8 @@ export async function isModelCachedOffline(
         if (name.includes('transformers') || name.includes('onnx')) {
           const cache = await caches.open(name);
           const keys = await cache.keys();
-          // Verify actual ONNX model weight files exist, not just a tiny tokenizer JSON
           const hasWeights = keys.some(
-            (req) => req.url.includes(modelId) && req.url.includes('.onnx')
+            (req) => urlMatchesExactModel(req.url, modelId) && req.url.includes('.onnx')
           );
           if (hasWeights) {
             foundInCache = true;
@@ -92,7 +103,6 @@ export async function isModelCachedOffline(
         return true;
       }
 
-      // CacheStorage is accessible and model weights were evicted — clear stale flag
       localStorage.removeItem(`${MODEL_DOWNLOAD_PREFIX}${modelId}`);
       return false;
     } catch {
@@ -103,9 +113,6 @@ export async function isModelCachedOffline(
   return Boolean(localStorage.getItem(`${MODEL_DOWNLOAD_PREFIX}${modelId}`));
 }
 
-/**
- * Returns the verified status of all available offline speech models.
- */
 export async function getAllOfflineModelsStatus(): Promise<OfflineModelInfo[]> {
   const result: OfflineModelInfo[] = [];
 
@@ -133,9 +140,6 @@ export async function getAllOfflineModelsStatus(): Promise<OfflineModelInfo[]> {
   return result;
 }
 
-/**
- * Downloads and caches a Whisper neural model explicitly for offline use.
- */
 export async function downloadModelForOffline(
   modelId: BuiltinWhisperModel,
   onProgress: (progressPct: number, message: string) => void
@@ -156,12 +160,7 @@ export async function downloadModelForOffline(
   onProgress(100, `Neural model ${modelId} downloaded & ready for 100% offline use.`);
 }
 
-/**
- * Removes a cached model from CacheStorage and local tracking to free device storage.
- */
-export async function removeCachedModel(
-  modelId: BuiltinWhisperModel
-): Promise<void> {
+export async function removeCachedModel(modelId: BuiltinWhisperModel): Promise<void> {
   localStorage.removeItem(`${MODEL_DOWNLOAD_PREFIX}${modelId}`);
   if (typeof caches !== 'undefined') {
     try {
@@ -171,7 +170,7 @@ export async function removeCachedModel(
           const cache = await caches.open(name);
           const keys = await cache.keys();
           for (const req of keys) {
-            if (req.url.includes(modelId)) {
+            if (urlMatchesExactModel(req.url, modelId)) {
               await cache.delete(req);
             }
           }
