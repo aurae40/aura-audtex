@@ -56,6 +56,7 @@ interface PlayerBarProps {
   isVoiceoverActive?: boolean;
   onToggleVoiceover?: () => void;
 }
+
 const NOISE_LABELS: Record<BrainNoiseType, string> = {
   gamma40: '40Hz Gamma',
   rain: 'Rain & Vinyl',
@@ -100,37 +101,32 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 }) => {
   const [showPlayerOptions, setShowPlayerOptions] = useState(false);
   const playerOptionsRef = useRef<HTMLDivElement | null>(null);
+  const optionsTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!showPlayerOptions) return;
 
-    let autoCollapseTimer: number | null = null;
-    const startTimer = () => {
-      if (autoCollapseTimer) window.clearTimeout(autoCollapseTimer);
-      autoCollapseTimer = window.setTimeout(() => {
-        setShowPlayerOptions(false);
-      }, 2000);
-    };
-
-    startTimer();
-
     const handleOutsideClick = (e: Event) => {
-      if (playerOptionsRef.current && !playerOptionsRef.current.contains(e.target as Node)) {
+      const target = e.target as Node | null;
+      if (
+        target &&
+        !playerOptionsRef.current?.contains(target) &&
+        !optionsTriggerRef.current?.contains(target)
+      ) {
         setShowPlayerOptions(false);
-      } else {
-        startTimer();
       }
     };
 
-    document.addEventListener('mousedown', handleOutsideClick);
-    document.addEventListener('touchstart', handleOutsideClick);
-    window.addEventListener('scroll', handleOutsideClick, { passive: true });
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowPlayerOptions(false);
+    };
+
+    document.addEventListener('pointerdown', handleOutsideClick);
+    window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      if (autoCollapseTimer) window.clearTimeout(autoCollapseTimer);
-      document.removeEventListener('mousedown', handleOutsideClick);
-      document.removeEventListener('touchstart', handleOutsideClick);
-      window.removeEventListener('scroll', handleOutsideClick);
+      document.removeEventListener('pointerdown', handleOutsideClick);
+      window.removeEventListener('keydown', handleKeyDown);
     };
   }, [showPlayerOptions]);
 
@@ -159,20 +155,20 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
       {/* Primary transport remains touch-safe; less-frequent controls live in one sheet. */}
       <div className="relative flex items-center justify-between w-full px-2 sm:px-4 py-1">
-        {/* Left Actions: Live Meeting Toggle & Direct Web Link / Podcast Importer */}
+        {/* Left Actions: Live Meeting Toggle */}
         <div className="absolute left-0.5 sm:left-1 flex items-center gap-0.5 sm:gap-1 z-10">
           {onToggleLiveMeeting && (
             <button
               onClick={onToggleLiveMeeting}
-              className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all active:scale-95 ${
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95 ${
                 isLiveRecording
                   ? 'bg-rose-500 text-white shadow-[0_0_18px_rgba(244,63,94,0.7)] animate-pulse'
                   : 'text-stone-500 hover:text-stone-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'
               }`}
               title={
                 isLiveRecording
-                  ? `Recording Live Meeting [${Math.floor(liveRecordingDuration / 60)}:${(Math.floor(liveRecordingDuration % 60)).toString().padStart(2, '0')}] — Click to Stop & Save`
-                  : 'Live Meeting & Lecture Mode (Zero-Latency WebGPU Mic)'
+                  ? `Recording Live Meeting [${Math.floor(liveRecordingDuration / 60)}:${Math.floor(liveRecordingDuration % 60).toString().padStart(2, '0')}] — Click to Stop & Save`
+                  : 'Live Meeting & Lecture Mode'
               }
               aria-label={isLiveRecording ? 'Stop Live Recording' : 'Start Live Meeting Mode'}
             >
@@ -190,7 +186,6 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
         {/* Three large primary transport controls (touch-safe >= 48px) */}
         <div className="flex items-center justify-center gap-4 sm:gap-8 mx-auto relative">
-          {/* Voiceover indicator pill when reading transcript without audio track */}
           {!hasAudioTrack && tokens.length > 0 && (
             <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-[9px] font-mono text-amber-300 tracking-wider flex items-center gap-1 select-none pointer-events-none shadow-xs backdrop-blur-md whitespace-nowrap">
               <Volume2 className="w-2.5 h-2.5 text-amber-400" />
@@ -239,6 +234,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
         {/* Player Options sheet toggle */}
         <button
+          ref={optionsTriggerRef}
           onClick={() => setShowPlayerOptions((current) => !current)}
           className={`absolute right-1 w-10 h-10 rounded-full flex items-center justify-center transition active:scale-95 ${
             showPlayerOptions
@@ -253,7 +249,6 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
         {showPlayerOptions && (
           <>
-            {/* Auto-collapse backdrop */}
             <div
               className="fixed inset-0 z-40 bg-transparent cursor-default"
               onClick={() => setShowPlayerOptions(false)}
@@ -262,84 +257,94 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
               ref={playerOptionsRef}
               className="absolute right-0 bottom-full mb-2 w-64 p-2.5 rounded-2xl bg-stone-950/95 border border-white/10 shadow-2xl z-50 space-y-1.5 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2 duration-150"
             >
-            <div className="px-3 py-1 text-[10px] font-mono uppercase tracking-wider text-stone-400 border-b border-white/10 pb-1.5 mb-1">
-              Player Options
+              <div className="px-3 py-1 text-[10px] font-mono uppercase tracking-wider text-stone-400 border-b border-white/10 pb-1.5 mb-1 flex items-center justify-between">
+                <span>Player Options</span>
+                <button
+                  type="button"
+                  onClick={() => setShowPlayerOptions(false)}
+                  className="text-stone-500 hover:text-stone-200 p-0.5"
+                  aria-label="Close options"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <button
+                onClick={cycleSpeed}
+                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+              >
+                <span>Playback speed</span>
+                <strong className="text-amber-300 font-mono">
+                  {playbackRate.toFixed(2).replace(/\.00$/, '')}×
+                </strong>
+              </button>
+              {onToggleSilenceVacuum && (
+                <button
+                  onClick={onToggleSilenceVacuum}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+                >
+                  <span className="flex items-center gap-2">
+                    <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Skip silent gaps</span>
+                  </span>
+                  <span className={isSilenceVacuumActive ? 'text-emerald-300 font-bold' : 'text-stone-500'}>
+                    {isSilenceVacuumActive ? 'On' : 'Off'}
+                  </span>
+                </button>
+              )}
+              {onQuickVoiceDictate && (
+                <button
+                  onClick={() => {
+                    setShowPlayerOptions(false);
+                    onQuickVoiceDictate();
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center gap-2 text-xs text-stone-200"
+                >
+                  <Mic className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Add spoken note</span>
+                </button>
+              )}
+              {onOpenWebLinkModal && (
+                <button
+                  onClick={() => {
+                    setShowPlayerOptions(false);
+                    onOpenWebLinkModal();
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center gap-2 text-xs text-stone-200"
+                >
+                  <Globe className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Import Web Link / Podcast</span>
+                </button>
+              )}
+              {onToggleVoiceover && (
+                <button
+                  onClick={onToggleVoiceover}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+                >
+                  <span className="flex items-center gap-2">
+                    <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>AI Voiceover (Read Aloud)</span>
+                  </span>
+                  <span className={isVoiceoverActive ? 'text-amber-300 font-bold' : 'text-stone-500'}>
+                    {isVoiceoverActive ? 'On' : 'Off'}
+                  </span>
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setShowPlayerOptions(false);
+                  onOpenBrainwaves();
+                }}
+                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
+              >
+                <span className="flex items-center gap-2">
+                  <Brain className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Focus sound</span>
+                </span>
+                <span className="text-stone-400 font-mono text-[11px] truncate max-w-[90px]">
+                  {isAmbienceActive ? NOISE_LABELS[activeNoiseType] : 'Off'}
+                </span>
+              </button>
             </div>
-            <button
-              onClick={cycleSpeed}
-              className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
-            >
-              <span>Playback speed</span>
-              <strong className="text-amber-300 font-mono">{playbackRate.toFixed(2).replace(/\.00$/, '')}×</strong>
-            </button>
-            {onToggleSilenceVacuum && (
-              <button
-                onClick={onToggleSilenceVacuum}
-                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
-              >
-                <span className="flex items-center gap-2">
-                  <Zap className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Skip silent gaps</span>
-                </span>
-                <span className={isSilenceVacuumActive ? 'text-emerald-300 font-bold' : 'text-stone-500'}>
-                  {isSilenceVacuumActive ? 'On' : 'Off'}
-                </span>
-              </button>
-            )}
-            {onQuickVoiceDictate && (
-              <button
-                onClick={() => {
-                  setShowPlayerOptions(false);
-                  onQuickVoiceDictate();
-                }}
-                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center gap-2 text-xs text-stone-200"
-              >
-                <Mic className="w-3.5 h-3.5 text-amber-400" />
-                <span>Add spoken note</span>
-              </button>
-            )}
-            {onOpenWebLinkModal && (
-              <button
-                onClick={() => {
-                  setShowPlayerOptions(false);
-                  onOpenWebLinkModal();
-                }}
-                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center gap-2 text-xs text-stone-200"
-              >
-                <Globe className="w-3.5 h-3.5 text-sky-400" />
-                <span>Import Web Link / Podcast</span>
-              </button>
-            )}
-            {onToggleVoiceover && (
-              <button
-                onClick={onToggleVoiceover}
-                className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
-              >
-                <span className="flex items-center gap-2">
-                  <Volume2 className="w-3.5 h-3.5 text-amber-400" />
-                  <span>AI Voiceover (Read Aloud)</span>
-                </span>
-                <span className={isVoiceoverActive ? 'text-amber-300 font-bold' : 'text-stone-500'}>
-                  {isVoiceoverActive ? 'On' : 'Off'}
-                </span>
-              </button>
-            )}
-            <button
-              onClick={() => {
-                setShowPlayerOptions(false);
-                onOpenBrainwaves();
-              }}
-              className="w-full px-3 py-2 rounded-xl hover:bg-white/10 flex items-center justify-between text-xs text-stone-200"
-            >
-              <span className="flex items-center gap-2">
-                <Brain className="w-3.5 h-3.5 text-amber-400" />
-                <span>Focus sound</span>
-              </span>
-              <span className="text-stone-400 font-mono text-[11px] truncate max-w-[90px]">
-                {isAmbienceActive ? NOISE_LABELS[activeNoiseType] : 'Off'}
-              </span>
-            </button>
-          </div>
           </>
         )}
       </div>
@@ -438,7 +443,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
         </button>
       </div>
 
-      {/* iPhone Bottom Home Indicator Bar (Shown on desktop showcase, hidden on real mobile devices) */}
+      {/* iPhone Bottom Home Indicator Bar (Desktop showcase only) */}
       <div className="w-full pb-1 justify-center hidden md:flex">
         <div className="w-32 h-1 bg-stone-700/80 rounded-full" />
       </div>
