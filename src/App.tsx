@@ -24,8 +24,9 @@ import {
   downloadTranscriptVocabulary,
 } from './services/lexiconService';
 import { extractTranscriptVocabulary } from './services/dictionaryPackService';
-import { LiveMeetingEngine } from './services/liveAudioService';
+import { LiveMeetingEngine, type FlaggedMoment } from './services/liveAudioService';
 import { WebLinkImportModal } from './components/WebLinkImportModal';
+import { LiveMeetingModal } from './components/LiveMeetingModal';
 import {
   getStoredTranscriberEngine,
   setStoredTranscriberEngine,
@@ -128,6 +129,7 @@ export function App() {
   const [isRecallOpen, setIsRecallOpen] = useState(false);
   const [isFullScreenOpen, setIsFullScreenOpen] = useState(false);
   const [isCountryModalOpen, setIsCountryModalOpen] = useState(false);
+  const [isLiveStudioOpen, setIsLiveStudioOpen] = useState(false);
   const [activeCountry, setActiveCountry] = useState<CountryHeritage>(getActiveCountryHeritage);
 
   useEffect(() => {
@@ -601,11 +603,18 @@ export function App() {
 
   // Live Intelligence & Real-Time Audio Capture State
   const [isLiveRecording, setIsLiveRecording] = useState(false);
+  const [isLivePaused, setIsLivePaused] = useState(false);
   const [liveRecordingDuration, setLiveRecordingDuration] = useState(0);
+  const [liveFlaggedMoments, setLiveFlaggedMoments] = useState<FlaggedMoment[]>([]);
+  const [liveAudioSource, setLiveAudioSource] = useState<'mic' | 'system'>('mic');
+  const [isLiveStreamingWhisper, setIsLiveStreamingWhisper] = useState(false);
+  const [isLiveWakeLockActive, setIsLiveWakeLockActive] = useState(false);
+  const [liveCurrentSpeaker, setLiveCurrentSpeaker] = useState('Speaker 1');
+  const [liveCurrentPitchHz, setLiveCurrentPitchHz] = useState(0);
+  const [liveWordCount, setLiveWordCount] = useState(0);
   const [isWebLinkModalOpen, setIsWebLinkModalOpen] = useState(false);
   const [isVoiceoverMode, setIsVoiceoverMode] = useState(false);
   const liveEngineRef = useRef<LiveMeetingEngine | null>(null);
-  const liveDurationTimerRef = useRef<number | null>(null);
 
   // Clean Back-Button / Swipe-Back Handling (Pushes history once per overlay session, never spams)
   const hasOverlayOpen =
@@ -617,6 +626,7 @@ export function App() {
     isRecallOpen ||
     isCountryModalOpen ||
     isWebLinkModalOpen ||
+    isLiveStudioOpen ||
     activeTab !== 'book';
   const pushedHistoryRef = useRef(false);
 
@@ -638,6 +648,8 @@ export function App() {
         setIsSearchGlossaryOpen(false);
       } else if (isWebLinkModalOpen) {
         setIsWebLinkModalOpen(false);
+      } else if (isLiveStudioOpen) {
+        setIsLiveStudioOpen(false);
       } else if (isCountryModalOpen) {
         setIsCountryModalOpen(false);
       } else if (isVaultOpen) {
@@ -659,10 +671,12 @@ export function App() {
     isFullScreenOpen,
     isSearchGlossaryOpen,
     isWebLinkModalOpen,
+    isLiveStudioOpen,
     isCountryModalOpen,
     isVaultOpen,
     isSkinsOpen,
     isBrainwavesOpen,
+    isRecallOpen,
     activeTab,
   ]);
 
@@ -673,6 +687,7 @@ export function App() {
         if (isFullScreenOpen) handleCloseFullScreen();
         else if (isSearchGlossaryOpen) setIsSearchGlossaryOpen(false);
         else if (isWebLinkModalOpen) setIsWebLinkModalOpen(false);
+        else if (isLiveStudioOpen) setIsLiveStudioOpen(false);
         else if (isCountryModalOpen) setIsCountryModalOpen(false);
         else if (isVaultOpen) setIsVaultOpen(false);
         else if (isSkinsOpen) setIsSkinsOpen(false);
@@ -688,10 +703,12 @@ export function App() {
     isFullScreenOpen,
     isSearchGlossaryOpen,
     isWebLinkModalOpen,
+    isLiveStudioOpen,
     isCountryModalOpen,
     isVaultOpen,
     isSkinsOpen,
     isBrainwavesOpen,
+    isRecallOpen,
     activeTab,
     isFullscreen,
     exitFullscreen,
@@ -731,226 +748,290 @@ export function App() {
     });
   };
 
-  const handleToggleLiveMeeting = async () => {
-    if (isLiveRecording) {
-      if (liveDurationTimerRef.current) {
-        clearInterval(liveDurationTimerRef.current);
-        liveDurationTimerRef.current = null;
-      }
-      setIsLiveRecording(false);
-      if (liveEngineRef.current) {
-        setToastNotification({
-          message: 'Finishing live recording & structuring session...',
-          type: 'info',
-        });
-        try {
-          const result = await liveEngineRef.current.stop();
-          liveEngineRef.current = null;
+  const handleStartLiveMeeting = async (options: {
+    audioSource: 'mic' | 'system';
+    deviceId?: string;
+    language: string;
+  }) => {
+    pausePlay();
+    setActiveTab('book');
+    setLiveRecordingDuration(0);
+    setIsLivePaused(false);
+    setLiveFlaggedMoments([]);
+    setLiveAudioSource(options.audioSource);
+    const liveTitle = `Live Meeting · ${new Date().toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`;
+    setBookTitle(liveTitle);
+    setChapterTitle(
+      options.audioSource === 'system'
+        ? 'Live Meeting / Tab Audio Capture'
+        : 'Live Microphone Diarization'
+    );
+    setTokens([]);
+    setSpeakers({
+      'Speaker 1': { id: 'Speaker 1', label: 'Speaker 1', color: '#f59e0b' },
+    });
 
-          let finalTokens = result.tokens || [];
-          let finalSpeakers = result.speakers || {};
-          const finalAudioBlob = result.audioBlob;
-          let finalAudioUrl = result.audioUrl;
-          const finalDuration = Math.max(1, result.duration || liveRecordingDuration);
+    try {
+      const engine = new LiveMeetingEngine(
+        (token) => {
+          setTokens((prev) => [...prev, token]);
+          setCurrentTime(token.start);
+          setDuration((prev) => Math.max(prev, token.end + 1));
+        },
+        (state) => {
+          setLiveRecordingDuration(state.durationSec);
+          setIsLivePaused(state.isPaused);
+          setLiveFlaggedMoments(state.flaggedMoments);
+          setIsLiveStreamingWhisper(state.isStreamingWhisper);
+          setIsLiveWakeLockActive(state.wakeLockActive);
+          setLiveCurrentSpeaker(state.currentSpeaker);
+          setLiveCurrentPitchHz(state.currentPitchHz);
+          setLiveWordCount(state.wordCount);
 
-          if (finalAudioBlob && finalAudioBlob.size > 0) {
-            buildAcousticTrackFromBlob(finalAudioBlob).catch(() => {});
-          }
-
-          // On iOS Safari (or browsers without Web Speech streaming), transcribe the captured
-          // audio recording via Adaptive Whisper (Server if online, else On-Device Whisper Worker)
-          if (finalTokens.length === 0 && finalAudioBlob && finalAudioBlob.size > 0) {
-            setIsTranscribing(true);
-            setTranscriptionStatus('Transcribing live recording with Whisper...');
-            try {
-              const ext = finalAudioBlob.type.includes('mp4') ? 'm4a' : 'webm';
-              const recordedFile = new File([finalAudioBlob], `live-meeting.${ext}`, {
-                type: finalAudioBlob.type || 'audio/mp4',
-              });
-              const { result: transResult } = await transcribeAudioAdaptive(recordedFile, {
-                engine: 'auto',
-                builtinModel: 'whisper-tiny.en',
-                onProgress: (msg) => setTranscriptionStatus(msg),
-              });
-              if (transResult?.tokens?.length) {
-                finalTokens = diarizeTokens(transResult.tokens);
-                finalSpeakers = extractSpeakerMap(finalTokens);
-              }
-            } catch (err) {
-              console.warn('Live post-recording transcription note:', err);
-            } finally {
-              setIsTranscribing(false);
-              setTranscriptionStatus('');
-            }
-          }
-
-          if (finalTokens.length > 0) {
-            finalTokens = diarizeTokens(finalTokens);
-            finalSpeakers = extractSpeakerMap(finalTokens);
-          }
-
-          setTokens(finalTokens);
-          setSpeakers(finalSpeakers);
-          setDuration(finalDuration);
-
-          if (finalAudioUrl) {
-            setAudioSource(finalAudioUrl);
-          } else if (finalAudioBlob) {
-            finalAudioUrl = URL.createObjectURL(finalAudioBlob);
-            setAudioSource(finalAudioUrl);
-          }
-
-          setCurrentTime(0);
-          if (audioElementRef.current) {
-            audioElementRef.current.currentTime = 0;
-          }
-
-          const liveSessionId = `live_${Date.now()}`;
-          setCurrentSessionId(liveSessionId);
-          const liveTitle = `Live Meeting ${new Date().toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}`;
-          setBookTitle(liveTitle);
-          setChapterTitle('Live Transcript & Speaker Diarization');
-
-          const liveExt = finalAudioBlob?.type.includes('mp4') ? 'm4a' : 'webm';
-          const sessionRecord: RecordingSession = {
-            id: liveSessionId,
-            fingerprint: liveSessionId,
-            title: liveTitle,
-            chapter: 'Live Audio Diarization',
-            fileName: `${liveTitle}.${liveExt}`,
-            fileSize: finalAudioBlob?.size || 0,
-            duration: finalDuration,
-            mimeType: finalAudioBlob?.type || 'audio/mp4',
-            createdAt: new Date().toISOString(),
-            lastPlayedAt: new Date().toISOString(),
-            lastPlaybackPositionSec: 0,
-            tokens: finalTokens,
-            speakers: finalSpeakers,
-            marginalia: [],
-            dossier: {
-              pageNumber: 1,
-              wordCountTrigger: finalTokens.length,
-              audioTimestampSec: Math.round(finalDuration * 0.5),
-              timeFormatted: `${Math.floor(finalDuration / 60)}:${Math.floor(finalDuration % 60)
-                .toString()
-                .padStart(2, '0')}`,
-              unspokenSubtext: 'Live meeting dialogue with speaker diarization and vocal turn tracking.',
-              subtextScore: '94% Diarization Rigor',
-              thesisSteps: [
-                { pages: 'Pages 1-2', description: 'Live microphone capture & pitch segmentation.' },
-                {
-                  pages: 'Pages 3-5',
-                  description: 'Real-time speech illumination and speaker classification.',
+          if (state.currentSpeaker) {
+            setSpeakers((prev) => {
+              if (prev[state.currentSpeaker]) return prev;
+              const defaultColors = ['#f59e0b', '#06b6d4', '#a855f7', '#f43f5e', '#10b981'];
+              const idx = Object.keys(prev).length;
+              return {
+                ...prev,
+                [state.currentSpeaker]: {
+                  id: state.currentSpeaker,
+                  label: state.currentSpeaker,
+                  color: defaultColors[idx % defaultColors.length],
                 },
-              ],
-              actionableBridge:
-                'Reflect upon key insights from this live discussion and bookmark key takeaways.',
-              studyFlashcards: [
-                {
-                  q: 'How does live diarization partition multiple speakers?',
-                  a: 'By analyzing fundamental vocal pitch frequency (F0) and conversational silence gaps.',
-                },
-              ],
-            },
-            lexicon: extractTranscriptVocabulary(finalTokens),
-            highlights: [],
-            reflections: [],
-            userSummary: '',
-            hasAudio: Boolean(finalAudioBlob),
-            audioBlob: finalAudioBlob || undefined,
-            engineUsed: 'Live Audio & Whisper',
-          };
-
-          saveRecordingSession(sessionRecord).catch((e) =>
-            console.warn('Live session save error:', e)
-          );
-
-          if (finalTokens.length > 0) {
-            runCognitiveAnalysis(finalTokens, finalDuration, liveTitle, activeLens, liveSessionId);
+              };
+            });
           }
-
-          setToastNotification({
-            message:
-              finalTokens.length > 0
-                ? `Live Meeting saved! Ready to replay from 00:00 (${finalTokens.length} words across ${Object.keys(finalSpeakers).length} speaker(s)).`
-                : 'Live audio recorded and saved! Tap Play to listen.',
-            type: 'info',
-          });
-        } catch (err: any) {
-          console.error('Error stopping live engine:', err);
-          setToastNotification({
-            message: `Live recording error: ${err?.message || 'Failed to finalize'}`,
-            type: 'error',
-          });
         }
-      }
-    } else {
-      pausePlay();
-      setActiveTab('book');
-      const startTime = Date.now();
-      setLiveRecordingDuration(0);
-      setBookTitle(
-        `Live Meeting · ${new Date().toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-        })}`
       );
-      setChapterTitle('Live Audio Diarization (Listening...)');
-      setTokens([]);
-      setSpeakers({
-        'Speaker 1': { id: 'Speaker 1', label: 'Speaker 1', color: '#f59e0b' },
+
+      await engine.start({
+        audioSource: options.audioSource,
+        deviceId: options.deviceId,
+        language: options.language,
+        chunkDurationSec: 6,
+        useWhisperStreaming: true,
       });
 
-      try {
-        const engine = new LiveMeetingEngine(
-          (token) => {
-            setTokens((prev) => [...prev, token]);
-            setCurrentTime(token.start);
-            setDuration((prev) => Math.max(prev, token.end + 1));
-          },
-          (state) => {
-            setLiveRecordingDuration(state.durationSec);
-            if (state.currentSpeaker) {
-              setSpeakers((prev) => {
-                if (prev[state.currentSpeaker]) return prev;
-                const defaultColors = ['#f59e0b', '#06b6d4', '#a855f7', '#f43f5e', '#10b981'];
-                const idx = Object.keys(prev).length;
-                return {
-                  ...prev,
-                  [state.currentSpeaker]: {
-                    id: state.currentSpeaker,
-                    label: state.currentSpeaker,
-                    color: defaultColors[idx % defaultColors.length],
-                  },
-                };
-              });
-            }
-          }
-        );
+      liveEngineRef.current = engine;
+      setIsLiveRecording(true);
+      setToastNotification({
+        message: `Live Studio Active (${options.audioSource === 'system' ? 'Meeting Tab' : 'Mic'})! Words illuminate live.`,
+        type: 'info',
+      });
+    } catch (err: any) {
+      console.error('Failed to start live engine:', err);
+      setIsLiveRecording(false);
+      throw err;
+    }
+  };
 
-        await engine.start();
-        liveEngineRef.current = engine;
-        setIsLiveRecording(true);
+  const handleStopLiveMeeting = async () => {
+    if (!liveEngineRef.current) return;
+    setIsLiveRecording(false);
+    setIsLivePaused(false);
+    setToastNotification({
+      message: 'Finishing live recording & structuring session...',
+      type: 'info',
+    });
+    try {
+      const result = await liveEngineRef.current.stop();
+      liveEngineRef.current = null;
 
-        liveDurationTimerRef.current = window.setInterval(() => {
-          setLiveRecordingDuration(Math.floor((Date.now() - startTime) / 1000));
-        }, 500);
+      let finalTokens = result.tokens || [];
+      let finalSpeakers = result.speakers || {};
+      const finalAudioBlob = result.audioBlob;
+      let finalAudioUrl = result.audioUrl;
+      const finalDuration = Math.max(1, result.duration || liveRecordingDuration);
+      const flagged = result.flaggedMoments || [];
 
-        setToastNotification({
-          message: 'Live Meeting active! Speak into your microphone to capture and transcribe.',
-          type: 'info',
-        });
-      } catch (err: any) {
-        console.error('Failed to start live meeting engine:', err);
-        setIsLiveRecording(false);
-        setToastNotification({
-          message: `Could not access microphone: ${err?.message || 'Microphone access denied'}.`,
-          type: 'error',
-        });
+      if (finalAudioBlob && finalAudioBlob.size > 0) {
+        buildAcousticTrackFromBlob(finalAudioBlob).catch(() => {});
       }
+
+      // On browsers without Web Speech streaming or if offline, transcribe captured audio
+      if (finalTokens.length === 0 && finalAudioBlob && finalAudioBlob.size > 0) {
+        setIsTranscribing(true);
+        setTranscriptionStatus('Transcribing live recording with Whisper...');
+        try {
+          const ext = finalAudioBlob.type.includes('mp4') ? 'm4a' : 'webm';
+          const recordedFile = new File([finalAudioBlob], `live-meeting.${ext}`, {
+            type: finalAudioBlob.type || 'audio/mp4',
+          });
+          const { result: transResult } = await transcribeAudioAdaptive(recordedFile, {
+            engine: 'auto',
+            builtinModel: 'whisper-tiny.en',
+            onProgress: (msg) => setTranscriptionStatus(msg),
+          });
+          if (transResult?.tokens?.length) {
+            finalTokens = diarizeTokens(transResult.tokens);
+            finalSpeakers = extractSpeakerMap(finalTokens);
+          }
+        } catch (err) {
+          console.warn('Live post-recording transcription note:', err);
+        } finally {
+          setIsTranscribing(false);
+          setTranscriptionStatus('');
+        }
+      }
+
+      if (finalTokens.length > 0) {
+        finalTokens = diarizeTokens(finalTokens);
+        finalSpeakers = extractSpeakerMap(finalTokens);
+      }
+
+      setTokens(finalTokens);
+      setSpeakers(finalSpeakers);
+      setDuration(finalDuration);
+
+      if (finalAudioUrl) {
+        setAudioSource(finalAudioUrl);
+      } else if (finalAudioBlob) {
+        finalAudioUrl = URL.createObjectURL(finalAudioBlob);
+        setAudioSource(finalAudioUrl);
+      }
+
+      setCurrentTime(0);
+      if (audioElementRef.current) {
+        audioElementRef.current.currentTime = 0;
+      }
+
+      const liveSessionId = `live_${Date.now()}`;
+      setCurrentSessionId(liveSessionId);
+      const liveTitle = `Live Meeting ${new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      })}`;
+      setBookTitle(liveTitle);
+      setChapterTitle('Live Transcript & Speaker Diarization');
+
+      // Convert flagged moments to session reflections so they're searchable and highlighted
+      const flaggedReflections: UserReflection[] = flagged.map((f) => ({
+        id: f.id,
+        sessionId: liveSessionId,
+        audioId: liveSessionId,
+        timestampSec: f.timestampSec,
+        timeFormatted: f.timeFormatted,
+        pageNumber: 1,
+        highlightedQuote: `Live Flagged Insight at ${f.timeFormatted}`,
+        annotationText: f.label,
+        tag: 'insight',
+        color: '#f59e0b',
+        createdAt: new Date().toISOString(),
+      }));
+
+      if (flaggedReflections.length > 0) {
+        setAllReflections((prev) => ({
+          ...prev,
+          [liveSessionId]: [...(prev[liveSessionId] || []), ...flaggedReflections],
+        }));
+      }
+
+      const liveExt = finalAudioBlob?.type.includes('mp4') ? 'm4a' : 'webm';
+      const sessionRecord: RecordingSession = {
+        id: liveSessionId,
+        fingerprint: liveSessionId,
+        title: liveTitle,
+        chapter: 'Live Audio Diarization',
+        fileName: `${liveTitle}.${liveExt}`,
+        fileSize: finalAudioBlob?.size || 0,
+        duration: finalDuration,
+        mimeType: finalAudioBlob?.type || 'audio/mp4',
+        createdAt: new Date().toISOString(),
+        lastPlayedAt: new Date().toISOString(),
+        lastPlaybackPositionSec: 0,
+        tokens: finalTokens,
+        speakers: finalSpeakers,
+        marginalia: [],
+        dossier: {
+          pageNumber: 1,
+          wordCountTrigger: finalTokens.length,
+          audioTimestampSec: Math.round(finalDuration * 0.5),
+          timeFormatted: `${Math.floor(finalDuration / 60)}:${Math.floor(finalDuration % 60)
+            .toString()
+            .padStart(2, '0')}`,
+          unspokenSubtext: 'Live meeting dialogue with rolling Whisper streaming and speaker turn tracking.',
+          subtextScore: '96% Studio Capture Rigor',
+          thesisSteps: [
+            { pages: 'Pages 1-2', description: 'Real-time 6s acoustic streaming & pitch segmentation.' },
+            {
+              pages: 'Pages 3-5',
+              description: 'Illuminated spatial codex with live flagged insight markers.',
+            },
+          ],
+          actionableBridge:
+            'Review key insights flagged during this live discussion and bookmark key takeaways.',
+          studyFlashcards: [
+            {
+              q: 'How does live diarization partition multiple speakers?',
+              a: 'By analyzing fundamental vocal pitch frequency (F0) and conversational silence gaps.',
+            },
+          ],
+        },
+        lexicon: extractTranscriptVocabulary(finalTokens),
+        highlights: [],
+        reflections: flaggedReflections,
+        userSummary: '',
+        hasAudio: Boolean(finalAudioBlob),
+        audioBlob: finalAudioBlob || undefined,
+        engineUsed: 'Live Audio & Whisper v2',
+      };
+
+      saveRecordingSession(sessionRecord).catch((e) =>
+        console.warn('Live session save error:', e)
+      );
+
+      if (finalTokens.length > 0) {
+        runCognitiveAnalysis(finalTokens, finalDuration, liveTitle, activeLens, liveSessionId);
+      }
+
+      setToastNotification({
+        message:
+          finalTokens.length > 0
+            ? `Live Meeting saved! Ready to replay from 00:00 (${finalTokens.length} words across ${Object.keys(finalSpeakers).length} speaker(s)).`
+            : 'Live audio recorded and saved! Tap Play to listen.',
+        type: 'info',
+      });
+    } catch (err: any) {
+      console.error('Error stopping live engine:', err);
+      setToastNotification({
+        message: `Live recording error: ${err?.message || 'Failed to finalize'}`,
+        type: 'error',
+      });
+    }
+  };
+
+  const handleTogglePauseLive = () => {
+    if (liveEngineRef.current && isLiveRecording) {
+      const pausedNow = liveEngineRef.current.togglePause();
+      setIsLivePaused(pausedNow);
+      setToastNotification({
+        message: pausedNow ? 'Live recording paused.' : 'Live recording resumed.',
+        type: 'info',
+      });
+    }
+  };
+
+  const handleFlagMomentLive = (label?: string) => {
+    if (liveEngineRef.current && isLiveRecording) {
+      const flag = liveEngineRef.current.flagMoment(label);
+      setLiveFlaggedMoments(liveEngineRef.current.getFlaggedMoments());
+      setToastNotification({
+        message: `⭐ Flagged insight at ${flag.timeFormatted}!`,
+        type: 'info',
+      });
+    }
+  };
+
+  const handleToggleLiveMeeting = async () => {
+    if (isLiveRecording) {
+      await handleStopLiveMeeting();
+    } else {
+      setIsLiveStudioOpen(true);
     }
   };
 
@@ -2191,8 +2272,12 @@ export function App() {
             silenceTimeSavedSec={silenceTimeSavedSec}
             onQuickVoiceDictate={() => setActiveTab('reflections')}
             isLiveRecording={isLiveRecording}
+            isLivePaused={isLivePaused}
             liveRecordingDuration={liveRecordingDuration}
             onToggleLiveMeeting={handleToggleLiveMeeting}
+            onTogglePauseLive={handleTogglePauseLive}
+            onFlagMomentLive={handleFlagMomentLive}
+            onOpenLiveStudio={() => setIsLiveStudioOpen(true)}
             onOpenSearchGlossary={() => setIsSearchGlossaryOpen(true)}
             onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
             hasAudioTrack={Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src))}
@@ -2370,8 +2455,12 @@ export function App() {
             silenceTimeSavedSec={silenceTimeSavedSec}
             onQuickVoiceDictate={() => setActiveTab('reflections')}
             isLiveRecording={isLiveRecording}
+            isLivePaused={isLivePaused}
             liveRecordingDuration={liveRecordingDuration}
             onToggleLiveMeeting={handleToggleLiveMeeting}
+            onTogglePauseLive={handleTogglePauseLive}
+            onFlagMomentLive={handleFlagMomentLive}
+            onOpenLiveStudio={() => setIsLiveStudioOpen(true)}
             onOpenSearchGlossary={() => setIsSearchGlossaryOpen(true)}
             onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
             hasAudioTrack={Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src))}
@@ -2720,6 +2809,37 @@ export function App() {
           onImportTranscriptDirect={handleImportTranscriptDirect}
         />
       )}
+
+      {/* Live Meeting & Lecture Studio Modal v2 */}
+      <LiveMeetingModal
+        isOpen={isLiveStudioOpen}
+        onClose={() => setIsLiveStudioOpen(false)}
+        isRecording={isLiveRecording}
+        isPaused={isLivePaused}
+        durationSec={liveRecordingDuration}
+        currentSpeaker={liveCurrentSpeaker}
+        currentPitchHz={liveCurrentPitchHz}
+        wordCount={liveWordCount}
+        flaggedMoments={liveFlaggedMoments}
+        audioSource={liveAudioSource}
+        isStreamingWhisper={isLiveStreamingWhisper}
+        wakeLockActive={isLiveWakeLockActive}
+        onStartRecording={async (options) => {
+          await handleStartLiveMeeting(options);
+        }}
+        onPauseRecording={handleTogglePauseLive}
+        onResumeRecording={handleTogglePauseLive}
+        onStopRecording={handleStopLiveMeeting}
+        onFlagMoment={handleFlagMomentLive}
+        onImportAudioFile={(file) => {
+          setStagedImportFile(file);
+        }}
+        preferredLanguage={preferredWhisperLang}
+        onChangeLanguage={(lang) => {
+          setPreferredWhisperLang(lang);
+          setStoredWhisperLanguage(lang);
+        }}
+      />
 
       {/* iOS Safari Home Screen Fullscreen Guide Banner */}
       {showIosPrompt && (

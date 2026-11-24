@@ -447,6 +447,7 @@ def root():
             "health": "/health",
             "api": "/api",
             "transcribe": "/transcribe",
+            "transcribe_chunk": "/transcribe-chunk",
             "transcribe_url": "/transcribe-url",
             "models": "/models",
             "ollama_status": "/ollama/status",
@@ -472,6 +473,7 @@ def api_info():
             "health": "/health",
             "api": "/api",
             "transcribe": "/transcribe",
+            "transcribe_chunk": "/transcribe-chunk",
             "transcribe_url": "/transcribe-url",
             "models": "/models",
             "ollama_status": "/ollama/status",
@@ -542,6 +544,10 @@ RATE_LIMIT_STORE: Dict[str, List[float]] = {}
 RATE_LIMIT_MAX_PER_MINUTE = 12
 RATE_LIMIT_WINDOW_SEC = 60.0
 
+# Dedicated live streaming rate limiter: max 120 chunks/min for 6s rolling chunks
+RATE_LIMIT_CHUNK_STORE: Dict[str, List[float]] = {}
+RATE_LIMIT_CHUNK_MAX_PER_MINUTE = 120
+
 
 def enforce_rate_limit(client_ip: str):
     now = time.time()
@@ -554,6 +560,19 @@ def enforce_rate_limit(client_ip: str):
         )
     history.append(now)
     RATE_LIMIT_STORE[client_ip] = history
+
+
+def enforce_chunk_rate_limit(client_ip: str):
+    now = time.time()
+    history = RATE_LIMIT_CHUNK_STORE.get(client_ip, [])
+    history = [t for t in history if now - t < RATE_LIMIT_WINDOW_SEC]
+    if len(history) >= RATE_LIMIT_CHUNK_MAX_PER_MINUTE:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: maximum {RATE_LIMIT_CHUNK_MAX_PER_MINUTE} live chunk requests per minute.",
+        )
+    history.append(now)
+    RATE_LIMIT_CHUNK_STORE[client_ip] = history
 
 
 @app.post("/transcribe")
@@ -709,6 +728,96 @@ async def transcribe_audio(
             status_code=422,
             detail=f"Unable to decode or transcribe this audio file: {exc}. Try WAV, MP3, or M4A.",
         ) from exc
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
+@app.post("/transcribe-chunk")
+async def transcribe_chunk_endpoint(
+    request: Request,
+    file: UploadFile = File(...),
+    offset_sec: float = Query(0.0),
+    model_size: str = Query("tiny", pattern="^(tiny|base|small)$"),
+    language: Optional[str] = Query(None),
+    initial_prompt: Optional[str] = Query(None, max_length=600),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Ultra-low-latency 6-second streaming audio chunk transcription endpoint.
+    Designed for real-time live meeting & lecture illumination across all browsers.
+    """
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    enforce_chunk_rate_limit(client_ip)
+
+    required_token = os.environ.get("AURA_AUTH_TOKEN")
+    if required_token and authorization != f"Bearer {required_token}":
+        raise HTTPException(status_code=401, detail="Unauthorized: invalid or missing audio engine token.")
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No audio chunk uploaded.")
+
+    suffix = os.path.splitext(file.filename)[1].lower() or ".wav"
+    if suffix not in ALLOWED_AUDIO_EXTENSIONS:
+        suffix = ".wav"
+
+    model = get_whisper_model(model_size)
+    if not model:
+        raise HTTPException(status_code=503, detail=f"Whisper model '{model_size}' could not be initialized.")
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = tmp.name
+            while chunk := await file.read(256 * 1024):
+                tmp.write(chunk)
+
+        def _run_chunk_sync():
+            segments_gen, info_obj = model.transcribe(
+                tmp_path,
+                word_timestamps=True,
+                beam_size=1,
+                best_of=1,
+                vad_filter=True,
+                vad_parameters=dict(
+                    min_silence_duration_ms=250,
+                    speech_pad_ms=150,
+                    threshold=0.45,
+                ),
+                temperature=0.0,
+                condition_on_previous_text=False,
+                language=language if language and language != "auto" else None,
+                initial_prompt=initial_prompt.strip() if initial_prompt and initial_prompt.strip() else None,
+            )
+            return list(segments_gen), info_obj
+
+        segments, info = await asyncio.to_thread(_run_chunk_sync)
+        raw_tokens = segments_to_tokens(segments)
+
+        tokens = []
+        for t in raw_tokens:
+            tokens.append({
+                "word": t["word"],
+                "start": round(t["start"] + offset_sec, 2),
+                "end": round(t["end"] + offset_sec, 2),
+                "index": t["index"],
+            })
+
+        full_text = " ".join(t["word"] for t in tokens)
+
+        return {
+            "status": "ok",
+            "text": full_text,
+            "tokens": tokens,
+            "offsetSec": offset_sec,
+            "language": info.language if info else (language or "en"),
+            "languageProbability": round(info.language_probability, 3) if info else 1.0,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Chunk transcription error: {exc}")
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try:

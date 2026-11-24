@@ -22,6 +22,7 @@ import {
   Search,
   Languages,
   GraduationCap,
+  Star,
 } from 'lucide-react';
 import { WaveformRibbon } from './WaveformRibbon';
 import { WHISPER_LANGUAGE_OPTIONS } from '../services/builtinWhisperService';
@@ -53,8 +54,12 @@ interface PlayerBarProps {
   silenceTimeSavedSec?: number;
   onQuickVoiceDictate?: () => void;
   isLiveRecording?: boolean;
+  isLivePaused?: boolean;
   liveRecordingDuration?: number;
   onToggleLiveMeeting?: () => void;
+  onTogglePauseLive?: () => void;
+  onFlagMomentLive?: () => void;
+  onOpenLiveStudio?: () => void;
   onOpenWebLinkModal?: () => void;
   hasAudioTrack?: boolean;
   isVoiceoverActive?: boolean;
@@ -101,8 +106,12 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   silenceTimeSavedSec = 0,
   onQuickVoiceDictate,
   isLiveRecording = false,
+  isLivePaused = false,
   liveRecordingDuration = 0,
   onToggleLiveMeeting,
+  onTogglePauseLive,
+  onFlagMomentLive,
+  onOpenLiveStudio,
   onOpenWebLinkModal,
   hasAudioTrack = false,
   isVoiceoverActive = false,
@@ -169,32 +178,71 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
       {/* Primary transport remains touch-safe; less-frequent controls live in one sheet. */}
       <div className="relative flex items-center justify-between w-full px-2 sm:px-4 py-1">
-        {/* Left Actions: Live Meeting Toggle */}
+        {/* Left Actions: Live Meeting & Studio Capture Controls */}
         <div className="absolute left-0.5 sm:left-1 flex items-center gap-0.5 sm:gap-1 z-10">
           {onToggleLiveMeeting && (
-            <button
-              onClick={onToggleLiveMeeting}
-              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95 ${
-                isLiveRecording
-                  ? 'bg-rose-500 text-white shadow-[0_0_18px_rgba(244,63,94,0.7)] animate-pulse'
-                  : 'text-stone-500 hover:text-stone-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'
-              }`}
-              title={
-                isLiveRecording
-                  ? `Recording Live Meeting [${Math.floor(liveRecordingDuration / 60)}:${Math.floor(liveRecordingDuration % 60).toString().padStart(2, '0')}] — Click to Stop & Save`
-                  : 'Live Meeting & Lecture Mode'
-              }
-              aria-label={isLiveRecording ? 'Stop Live Recording' : 'Start Live Meeting Mode'}
-            >
-              {isLiveRecording ? (
-                <div className="flex items-center justify-center relative">
-                  <Square className="w-3.5 h-3.5 fill-current" />
-                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                </div>
-              ) : (
-                <Radio className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+            <div className={`flex items-center gap-0.5 sm:gap-1 ${isLiveRecording ? 'p-0.5 rounded-full bg-black/10 dark:bg-white/10 backdrop-blur-md border border-stone-300/40 dark:border-white/10' : ''}`}>
+              <button
+                onClick={onToggleLiveMeeting}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95 ${
+                  isLiveRecording
+                    ? 'bg-rose-500 text-white shadow-[0_0_18px_rgba(244,63,94,0.7)] animate-pulse'
+                    : 'text-stone-500 hover:text-stone-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'
+                }`}
+                title={
+                  isLiveRecording
+                    ? `Recording Live Meeting [${Math.floor(liveRecordingDuration / 60)}:${Math.floor(liveRecordingDuration % 60).toString().padStart(2, '0')}] — Click to Stop & Save`
+                    : 'Live Meeting & Lecture Mode'
+                }
+                aria-label={isLiveRecording ? 'Stop Live Recording' : 'Start Live Meeting Mode'}
+              >
+                {isLiveRecording ? (
+                  <div className="flex items-center justify-center relative">
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                  </div>
+                ) : (
+                  <Radio className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                )}
+              </button>
+
+              {isLiveRecording && onTogglePauseLive && (
+                <button
+                  onClick={onTogglePauseLive}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center transition-all active:scale-95 ${
+                    isLivePaused
+                      ? 'bg-amber-500 text-black shadow-sm font-bold'
+                      : 'text-stone-600 dark:text-stone-300 hover:bg-black/10 dark:hover:bg-white/10'
+                  }`}
+                  title={isLivePaused ? 'Resume Recording' : 'Pause for Break'}
+                  aria-label={isLivePaused ? 'Resume Recording' : 'Pause Recording'}
+                >
+                  {isLivePaused ? <Play className="w-3.5 h-3.5 fill-current" /> : <Pause className="w-3.5 h-3.5" />}
+                </button>
               )}
-            </button>
+
+              {isLiveRecording && onFlagMomentLive && (
+                <button
+                  onClick={onFlagMomentLive}
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-amber-500 hover:bg-amber-500/20 transition-all active:scale-95"
+                  title="Flag Moment (Bookmark)"
+                  aria-label="Flag Moment"
+                >
+                  <Star className="w-3.5 h-3.5 fill-amber-500" />
+                </button>
+              )}
+
+              {isLiveRecording && onOpenLiveStudio && (
+                <button
+                  onClick={onOpenLiveStudio}
+                  className="px-2 py-0.5 text-[10px] font-mono font-bold text-stone-700 dark:text-stone-300 hover:text-amber-500 transition-colors hidden md:inline-block cursor-pointer"
+                  title="Open Live Studio HUD"
+                >
+                  {Math.floor(liveRecordingDuration / 60)}:
+                  {Math.floor(liveRecordingDuration % 60).toString().padStart(2, '0')}
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -315,6 +363,23 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                 >
                   <Mic className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                   <span>Add spoken note</span>
+                </button>
+              )}
+              {onOpenLiveStudio && (
+                <button
+                  onClick={() => {
+                    setShowPlayerOptions(false);
+                    onOpenLiveStudio();
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-between text-xs text-stone-800 dark:text-stone-200 transition-colors cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <Radio className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                    <span>Live Meeting Studio v2</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-rose-600 dark:text-rose-400 font-bold">
+                    {isLiveRecording ? (isLivePaused ? 'PAUSED' : 'REC') : 'Configure'}
+                  </span>
                 </button>
               )}
               {onOpenSearchGlossary && (
