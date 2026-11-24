@@ -436,6 +436,9 @@ def root():
             "transcribe": "/transcribe",
             "transcribe_url": "/transcribe-url",
             "models": "/models",
+            "ollama_status": "/ollama/status",
+            "ollama_analyze": "/ollama/analyze",
+            "ollama_ask": "/ollama/ask",
         },
     }
 
@@ -455,6 +458,9 @@ def api_info():
             "transcribe": "/transcribe",
             "transcribe_url": "/transcribe-url",
             "models": "/models",
+            "ollama_status": "/ollama/status",
+            "ollama_analyze": "/ollama/analyze",
+            "ollama_ask": "/ollama/ask",
         },
     }
 
@@ -510,6 +516,68 @@ def list_available_models():
             },
         ],
     }
+
+
+# ==========================================
+# Ollama Tier-1 Adaptive Intelligence
+# ==========================================
+
+class OllamaAnalyzeRequest(BaseModel):
+    title: str = "Audio Recording"
+    tokens: List[Dict[str, Any]]
+    duration: float
+    lens: Optional[str] = "codex"
+    preferred_model: Optional[str] = None
+
+
+class OllamaAskRequest(BaseModel):
+    question: str
+    title: str = "Audio Recording"
+    passages: List[Dict[str, Any]]
+    duration: float
+    preferred_model: Optional[str] = None
+
+
+@app.get("/ollama/status")
+async def ollama_status_endpoint():
+    """Detects local Ollama availability, active host, and installed models."""
+    from ollama_engine import detect_ollama_status
+
+    return await detect_ollama_status()
+
+
+@app.post("/ollama/analyze")
+async def ollama_analyze_endpoint(req: OllamaAnalyzeRequest):
+    """Generates source-grounded Marginalia & Author Dossier using local Ollama."""
+    from ollama_engine import generate_ollama_analysis
+
+    try:
+        return await generate_ollama_analysis(
+            title=req.title,
+            tokens=req.tokens,
+            duration=req.duration,
+            lens=req.lens or "codex",
+            preferred_model=req.preferred_model,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/ollama/ask")
+async def ollama_ask_endpoint(req: OllamaAskRequest):
+    """Answers user question with timestamp citations grounded in retrieved audio passages."""
+    from ollama_engine import answer_question_with_ollama
+
+    try:
+        return await answer_question_with_ollama(
+            question=req.question,
+            title=req.title,
+            passages=req.passages,
+            duration=req.duration,
+            preferred_model=req.preferred_model,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # In-memory IP rate limiter: max 12 transcription jobs per minute per client IP

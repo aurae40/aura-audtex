@@ -443,7 +443,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-sans text-base sm:text-lg font-bold text-stone-100 tracking-tight">
+                <h3 className="font-sans text-base sm:text-lg font-bold text-stone-900 dark:text-stone-100 tracking-tight">
                   Offline Library & Storage Vault
                 </h3>
                 <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
@@ -458,7 +458,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-stone-500/10 hover:bg-stone-500/20 border border-stone-500/20 text-stone-500 dark:text-stone-400 hover:text-stone-100 transition flex items-center justify-center shrink-0 active:scale-95 cursor-pointer"
+            className="w-8 h-8 rounded-full bg-stone-500/10 hover:bg-stone-500/20 border border-stone-500/20 text-stone-500 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 transition flex items-center justify-center shrink-0 active:scale-95 cursor-pointer"
             aria-label="Close Vault"
           >
             <X className="w-4 h-4" />
@@ -467,25 +467,49 @@ export const VaultModal: React.FC<VaultModalProps> = ({
 
         {/* Global Feedback Toast */}
         {actionFeedback && (
-          <div className="px-3.5 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-300 text-xs font-sans animate-in fade-in flex items-center justify-between">
+          <div className="px-3.5 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-sans animate-in fade-in flex items-center justify-between">
             <span className="font-medium">{actionFeedback}</span>
-            <button onClick={() => setActionFeedback(null)} className="text-stone-400 hover:text-stone-100 p-1">
+            <button onClick={() => setActionFeedback(null)} className="text-stone-400 hover:text-stone-900 dark:hover:text-stone-100 p-1">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
+        {/* Hidden file input for archive import */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".aura,.json"
+          onChange={handleImportArchiveFile}
+          className="hidden"
+        />
+
         {/* VIEW 1: INITIAL HUB — 5 WORKSPACE MODULES */}
         {activeTab === null ? (
-          <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 py-1 animate-in fade-in duration-200">
-            <div className="flex items-center justify-between px-1 pb-1">
+          <div className="flex-1 overflow-y-auto space-y-3 pr-1 py-1 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between px-1 pb-0.5">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-500 font-sans">
                 Vault Sections
               </span>
-              <span className="text-[11px] text-stone-500 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 dark:bg-amber-400" />
-                <span className="font-medium text-stone-600 dark:text-stone-300">5 Modules Ready</span>
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-[11px] font-medium text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  title="Import a previously saved .aura archive"
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>Import .aura</span>
+                </button>
+                <span className="text-stone-300 dark:text-stone-700">•</span>
+                <button
+                  onClick={handleBackupAll}
+                  className="text-[11px] font-medium text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  title="Download full library backup"
+                >
+                  <Download className="w-3 h-3" />
+                  <span>Backup All</span>
+                </button>
+              </div>
             </div>
 
             {/* 1. Recordings & Transcripts */}
@@ -497,16 +521,16 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                 <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500/20 via-amber-600/10 to-transparent border border-amber-500/30 flex items-center justify-center text-amber-500 dark:text-amber-300 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
                   <FolderArchive className="w-5 h-5" />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-stone-100 group-hover:text-amber-500 dark:group-hover:text-amber-300 transition-colors">
+                    <span className="text-sm font-semibold text-stone-900 dark:text-stone-100 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors">
                       Audio Recordings & Archives
                     </span>
-                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-500/30">
+                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
                       {sessions.length} {sessions.length === 1 ? 'saved' : 'saved'}
                     </span>
                   </div>
-                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 font-normal truncate">
+                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 font-normal truncate">
                     Saved audio codices, verbatim transcripts, milestones & .aura backups
                   </p>
                 </div>
@@ -523,17 +547,19 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                 <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-rose-500/20 via-rose-600/10 to-transparent border border-rose-500/30 flex items-center justify-center text-rose-500 dark:text-rose-300 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
                   <Printer className="w-5 h-5" />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-stone-100 group-hover:text-rose-500 dark:group-hover:text-rose-300 transition-colors">
+                    <span className="text-sm font-semibold text-stone-900 dark:text-stone-100 group-hover:text-rose-600 dark:group-hover:text-rose-300 transition-colors">
                       Illuminated PDF Studio
                     </span>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-300 border border-rose-500/30 tracking-wide">
-                      A4 EXECUTIVE
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 tracking-wide">
+                      {activeSession ? 'CURRENT SESSION READY' : 'A4 EXECUTIVE'}
                     </span>
                   </div>
-                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 font-normal truncate">
-                    Publication-grade A4 dossier reports with timestamps, marginalia & quotes
+                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 font-normal truncate">
+                    {activeSession
+                      ? `Ready to export "${activeSession.title || 'Current Session'}" with marginalia & quotes`
+                      : 'Publication-grade A4 dossier reports with timestamps, marginalia & quotes'}
                   </p>
                 </div>
               </div>
@@ -549,19 +575,19 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                 <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500/20 via-emerald-600/10 to-transparent border border-emerald-500/30 flex items-center justify-center text-emerald-500 dark:text-emerald-300 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
                   <Brain className="w-5 h-5" />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-stone-100 group-hover:text-emerald-500 dark:group-hover:text-emerald-300 transition-colors">
+                    <span className="text-sm font-semibold text-stone-900 dark:text-stone-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition-colors">
                       On-Device Speech Models
                     </span>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border border-emerald-500/30">
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
                       {offlineModels.filter((m) => m.isDownloaded).length > 0
                         ? `${offlineModels.filter((m) => m.isDownloaded).length} OFFLINE READY`
                         : 'WEBGPU • ON-DEVICE'}
                     </span>
                   </div>
-                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 font-normal truncate">
-                    Whisper neural net weights cached locally for 100% offline private transcription
+                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 font-normal truncate">
+                    {deviceCaps?.gpuLabel ? `${deviceCaps.gpuLabel} • ` : ''}Whisper neural weights cached for 100% offline transcription
                   </p>
                 </div>
               </div>
@@ -577,16 +603,16 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                 <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-sky-500/20 via-sky-600/10 to-transparent border border-sky-500/30 flex items-center justify-center text-sky-500 dark:text-sky-300 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
                   <GraduationCap className="w-5 h-5" />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-stone-100 group-hover:text-sky-500 dark:group-hover:text-sky-300 transition-colors">
+                    <span className="text-sm font-semibold text-stone-900 dark:text-stone-100 group-hover:text-sky-600 dark:group-hover:text-sky-300 transition-colors">
                       Study Lexicon & Flashcards
                     </span>
-                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-600 dark:text-sky-300 border border-sky-500/30">
+                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30">
                       {savedVocabularyCount} {savedVocabularyCount === 1 ? 'term' : 'terms'}
                     </span>
                   </div>
-                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 font-normal truncate">
+                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 font-normal truncate">
                     Interactive vocabulary library, Leitner spaced-repetition & Anki export
                   </p>
                 </div>
@@ -603,46 +629,60 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                 <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-purple-500/20 via-purple-600/10 to-transparent border border-purple-500/30 flex items-center justify-center text-purple-500 dark:text-purple-300 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
                   <SlidersHorizontal className="w-5 h-5" />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-stone-100 group-hover:text-purple-500 dark:group-hover:text-purple-300 transition-colors">
+                    <span className="text-sm font-semibold text-stone-900 dark:text-stone-100 group-hover:text-purple-600 dark:group-hover:text-purple-300 transition-colors">
                       Speech Engine & Hardware
                     </span>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30 uppercase tracking-wide">
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30 uppercase tracking-wide">
                       {transcriberEngine} ACTIVE
                     </span>
                   </div>
-                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 font-normal truncate">
-                    Faster-Whisper server address, GPU acceleration profile & engine switching
+                  <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 font-normal truncate">
+                    {serverStatus?.online
+                      ? `Faster-Whisper connected on LAN • Engine: ${transcriberEngine}`
+                      : 'In-Browser WebGPU Whisper active • Health checks & neural switching'}
                   </p>
                 </div>
               </div>
               <ChevronRight className="w-5 h-5 text-stone-400 group-hover:text-purple-500 dark:group-hover:text-purple-300 group-hover:translate-x-1 transition-all shrink-0 ml-3" />
             </button>
 
-            {/* Storage Footnote */}
-            <div className="pt-3 border-t border-black/10 dark:border-white/10 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-2 text-stone-500 dark:text-stone-400 font-sans">
-                <HardDrive className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
-                <span>
-                  Storage Used: <strong className="text-stone-100 font-semibold font-mono">{usedMB} MB</strong>
-                </span>
-                {storageStats.quotaBytes > 0 && (
-                  <span className="text-stone-400 dark:text-stone-500 text-[11px] font-mono">
-                    (of {quotaGB} GB quota)
+            {/* Storage Footnote with Visual Progress Bar */}
+            <div className="pt-3 border-t border-black/10 dark:border-white/10 flex flex-col gap-2">
+              <div className="flex items-center justify-between text-xs font-sans">
+                <div className="flex items-center gap-2 text-stone-600 dark:text-stone-400">
+                  <HardDrive className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
+                  <span>
+                    Storage Used: <strong className="text-stone-900 dark:text-stone-100 font-semibold font-mono">{usedMB} MB</strong>
+                    {storageStats.quotaBytes > 0 && (
+                      <span className="text-stone-400 dark:text-stone-500 font-mono ml-1">
+                        (of {quotaGB} GB quota)
+                      </span>
+                    )}
                   </span>
-                )}
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium font-sans">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
+                  <span>100% Private On-Device</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-300 text-[11px] font-medium font-sans">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
-                <span>100% Private & Sandboxed On-Device</span>
+
+              {/* Progress bar */}
+              <div className="w-full h-1.5 rounded-full bg-black/5 dark:bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-400 transition-all duration-300"
+                  style={{
+                    width: `${Math.min(100, Math.max(1, storageStats.percent || 1))}%`,
+                  }}
+                />
               </div>
             </div>
           </div>
         ) : (
           /* VIEW 2: REVEALED CHAMBER CONTENT WITH TOP BACK-TO-HUB BUTTON + PILLS */
           <>
-            <div className="flex items-center justify-between border-b border-white/10 pb-2.5 gap-2">
+            <div className="flex items-center justify-between border-b border-black/10 dark:border-white/10 pb-2.5 gap-2">
               <button
                 onClick={() => setActiveTab(null)}
                 className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-amber-200 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 border border-amber-500/30 cursor-pointer shrink-0 shadow-sm"
@@ -784,11 +824,11 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                     <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold uppercase tracking-wider">
                       ● Active Recording Session
                     </span>
-                    <span className="text-xs font-bold text-stone-100 truncate">
+                    <span className="text-xs font-bold text-stone-900 dark:text-stone-100 truncate">
                       {activeSession.title || activeSession.fileName || 'Current Audio Session'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-stone-400 font-mono">
+                  <p className="text-[11px] text-stone-500 dark:text-stone-400 font-mono">
                     {activeSession.tokens.length.toLocaleString()} words synchronized
                     {activeSession.highlights && activeSession.highlights.length > 0 && ` • ${activeSession.highlights.length} highlights`}
                     {activeSession.lexicon && Object.keys(activeSession.lexicon).length > 0 && ` • ${Object.keys(activeSession.lexicon).length} terms`}
@@ -857,7 +897,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                   >
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-stone-100 truncate">{s.title}</span>
+                        <span className="text-xs font-bold text-stone-900 dark:text-stone-100 truncate">{s.title}</span>
                         {s.hasAudio ? (
                           <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
                             🔊 Audio & Transcript Ready
@@ -951,7 +991,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                     <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold uppercase tracking-wider">
                       ● Active Listening Session
                     </span>
-                    <span className="text-xs font-bold text-stone-100 truncate">
+                    <span className="text-xs font-bold text-stone-900 dark:text-stone-100 truncate">
                       {activeSession.title || activeSession.fileName || 'Current Audio Session'}
                     </span>
                   </div>
@@ -963,7 +1003,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                   <div className="p-2 rounded-xl bg-black/30 border border-white/5">
                     <div className="text-[10px] text-stone-400 font-mono">Spoken Words</div>
-                    <div className="text-xs font-bold text-stone-100">{activeSession.tokens.length.toLocaleString()}</div>
+                    <div className="text-xs font-bold text-stone-900 dark:text-stone-100">{activeSession.tokens.length.toLocaleString()}</div>
                   </div>
                   <div className="p-2 rounded-xl bg-black/30 border border-white/5">
                     <div className="text-[10px] text-stone-400 font-mono">Highlights</div>
@@ -1040,7 +1080,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                       className="p-3 rounded-2xl bg-white/[0.02] border border-white/10 hover:border-white/20 transition flex items-center justify-between gap-3"
                     >
                       <div className="min-w-0 flex-1 space-y-0.5">
-                        <div className="text-xs font-bold text-stone-100 truncate">{s.title}</div>
+                        <div className="text-xs font-bold text-stone-900 dark:text-stone-100 truncate">{s.title}</div>
                         <div className="text-[10px] text-stone-400 font-mono flex items-center gap-2">
                           <span>{s.chapter}</span>
                           <span>•</span>
@@ -1079,7 +1119,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                     <DownloadCloud className="w-4 h-4" />
                   </div>
                   <div>
-                    <h5 className="text-xs font-bold text-stone-100">Sample Illuminated Codex PDF</h5>
+                    <h5 className="text-xs font-bold text-stone-900 dark:text-stone-100">Sample Illuminated Codex PDF</h5>
                     <p className="text-[10px] text-stone-400 font-mono">Explore Orwell's 1984 Manifesto with full annotations</p>
                   </div>
                 </div>
@@ -1170,7 +1210,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Cpu className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-bold text-stone-100">{m.name}</span>
+                      <span className="text-xs font-bold text-stone-900 dark:text-stone-100">{m.name}</span>
                       <span className="text-[10px] text-stone-400 font-mono">({m.sizeFormatted})</span>
                     </div>
                     {m.isDownloaded ? (
@@ -1237,7 +1277,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <BookA className="w-4 h-4 text-amber-400" />
-                  <span className="text-xs font-bold text-stone-100">Study Lexicon & Spaced Repetition</span>
+                  <span className="text-xs font-bold text-stone-900 dark:text-stone-100">Study Lexicon & Spaced Repetition</span>
                 </div>
                 <span className="text-[10px] font-mono text-amber-300">
                   {savedVocabulary.length} words saved ({accumulatedLexiconCount} recognized)
@@ -1284,7 +1324,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                           <span className="text-xl leading-none">{pack.flag}</span>
                           <div>
                             <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-stone-100">{pack.title}</span>
+                              <span className="text-xs font-bold text-stone-900 dark:text-stone-100">{pack.title}</span>
                               <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-stone-300">
                                 {pack.language.toUpperCase()}
                               </span>
@@ -1369,7 +1409,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                     >
                       <div className="flex items-baseline justify-between">
                         <div className="flex items-baseline gap-2">
-                          <span className="text-xs font-bold text-stone-100">{entry.term}</span>
+                          <span className="text-xs font-bold text-stone-900 dark:text-stone-100">{entry.term}</span>
                           <span className="text-[10px] font-mono text-amber-400">{entry.phonetic}</span>
                           <span className="text-[10px] italic text-stone-400 font-book">{entry.partOfSpeech}</span>
                         </div>
@@ -1416,7 +1456,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Cpu className="w-4 h-4 text-emerald-400" />
-                    <span className="text-xs font-bold text-stone-100">On This Device (In-Browser Whisper)</span>
+                    <span className="text-xs font-bold text-stone-900 dark:text-stone-100">On This Device (In-Browser Whisper)</span>
                   </div>
                   {transcriberEngine === 'builtin' && (
                     <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
@@ -1441,7 +1481,7 @@ export const VaultModal: React.FC<VaultModalProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Server className="w-4 h-4 text-amber-400" />
-                    <span className="text-xs font-bold text-stone-100">My Computer / Server (Faster-Whisper)</span>
+                    <span className="text-xs font-bold text-stone-900 dark:text-stone-100">My Computer / Server (Faster-Whisper)</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     {isCheckingServer ? (
