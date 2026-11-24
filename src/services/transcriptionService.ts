@@ -1,5 +1,14 @@
 import type { WordToken, Marginalia, MilestoneDossier, LexiconEntry } from '../types';
+import {
+  transcribeWithBuiltinWhisper,
+  transcribeWithAcousticEngine,
+  type BuiltinWhisperModel,
+} from './builtinWhisperService';
+import { buildAcousticTrackFromBlob } from './audioAnalyserService';
+import { isPhysicalMobileDevice } from './hardwareDetectionService';
+
 export type { BuiltinWhisperModel } from './builtinWhisperService';
+export { transcribeWithBuiltinWhisper, transcribeWithAcousticEngine };
 
 export interface TranscriptionResult {
   title: string;
@@ -22,12 +31,20 @@ export interface TranscriptionResult {
 }
 
 export type TranscriberEngine = 'builtin' | 'local' | 'remote';
-export { transcribeWithBuiltinWhisper, transcribeWithAcousticEngine } from './builtinWhisperService';
 
 const ENGINE_STORAGE_KEY = 'aura_transcriber_engine';
 const LOCAL_SERVER_URL_STORAGE = 'aura_local_server_url';
 const LOCAL_MODEL_SIZE_STORAGE = 'aura_local_model_size';
 const SERVER_AUTH_TOKEN_STORAGE = 'aura_server_auth_token';
+
+/** Optional default HTTPS endpoint from Vite env (e.g. VITE_AURA_SERVER_URL=https://api.yourdomain.com) */
+export const DEFAULT_HTTPS_SERVER: string =
+  ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_AURA_SERVER_URL || '')
+    .trim()
+    .replace(/\/+$/, '');
+
+/** Backward-compatible alias for any UI references */
+export const DEFAULT_HTTPS_TUNNEL = DEFAULT_HTTPS_SERVER;
 
 export interface EngineProfile {
   id: TranscriberEngine;
@@ -46,60 +63,70 @@ export const ENGINE_PROFILES: Record<TranscriberEngine, EngineProfile> = {
     title: 'On This Device (In-Browser Whisper)',
     badge: '100% On-Device (Private)',
     badgeColor: 'text-emerald-300 bg-emerald-500/20 border-emerald-500/40',
-    privacy: 'Audio never leaves this device. Transcribes 100% locally in browser memory using WebAssembly.',
-    network: 'One-time initial model download (~39MB ONNX), permanently cached in browser for full offline use.',
-    speed: 'Runs on device CPU/WebGPU. No external server or Python installation required.',
-    offline: '100% offline once the neural model is downloaded.',
+    privacy: 'Audio never leaves this device. Runs in a dedicated Web Worker via ONNX WASM/WebGPU.',
+    network: 'One-time model download (~39MB), permanently cached in browser storage for offline use.',
+    speed: 'Chunked background Web Worker on phone or desktop CPU/GPU with zero UI freeze.',
+    offline: '100% offline once the neural model is cached.',
   },
   local: {
     id: 'local',
     title: 'My Computer / Server (Faster-Whisper)',
-    badge: 'Local LAN / Host (Advanced)',
+    badge: 'Local LAN / Host (Fastest)',
     badgeColor: 'text-amber-300 bg-amber-500/20 border-amber-500/40',
-    privacy: 'Processed by your own local Python Faster-Whisper server. Zero cloud transit.',
-    network: 'Direct socket connection (default: http://127.0.0.1:8000).',
-    speed: 'Ultra-fast multi-threaded INT8 inference with Silero VAD (~10x real-time).',
-    offline: '100% offline, operates with no internet connection.',
+    privacy: 'Processed by your own Python Faster-Whisper server. Zero third-party cloud.',
+    network: 'Direct LAN/localhost socket or HTTPS reverse proxy.',
+    speed: 'Multi-threaded GPU/INT8 inference with Silero VAD (~10x–20x real-time).',
+    offline: '100% offline on your local Wi-Fi with no internet required.',
   },
   remote: {
     id: 'remote',
     title: 'Custom Remote / Tunneled Server',
-    badge: 'Custom Server URL (Advanced)',
+    badge: 'Custom HTTPS URL',
     badgeColor: 'text-cyan-300 bg-cyan-500/20 border-cyan-500/40',
-    privacy: 'Sends audio payload to your designated custom server URL over HTTPS.',
-    network: 'Requires network connectivity to your chosen server endpoint.',
+    privacy: 'Sends audio payload to your designated custom HTTPS server endpoint.',
+    network: 'Requires network connectivity to your custom server URL.',
     speed: 'High-speed remote GPU/CPU execution.',
     offline: 'Online network required.',
   },
 };
 
-export const DEFAULT_HTTPS_TUNNEL = 'https://visited-adjustments-condition-fiber.trycloudflare.com';
+/** Cross-browser timeout fetch (safe on older iOS Safari where AbortSignal.timeout is missing) */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs: number = 2500
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
 
 export function getStoredServerUrl(): string {
-  const saved = localStorage.getItem(LOCAL_SERVER_URL_STORAGE);
   const isHttpsOrigin = typeof window !== 'undefined' && window.location.protocol === 'https:';
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin.replace(/\/+$/, '') : '';
+  const saved = localStorage.getItem(LOCAL_SERVER_URL_STORAGE)?.trim().replace(/\/+$/, '');
 
   if (saved) {
-    const trimmed = saved.trim().replace(/\/+$/, '');
-    // Automatically purge stale or defunct quick tunnels
-    if (trimmed.includes('jury-lows-round-camera') || (trimmed.includes('trycloudflare.com') && trimmed !== DEFAULT_HTTPS_TUNNEL)) {
-      localStorage.removeItem(LOCAL_SERVER_URL_STORAGE);
-      return isHttpsOrigin ? DEFAULT_HTTPS_TUNNEL : 'http://127.0.0.1:8000';
+    // Prevent mixed-content blocks on HTTPS origins while preserving valid custom HTTPS tunnels/domains
+    if (isHttpsOrigin && saved.startsWith('http://')) {
+      return DEFAULT_HTTPS_SERVER || '';
     }
-    // If running on an HTTPS origin, upgrade insecure HTTP URLs to verified HTTPS tunnel or current origin
-    if (isHttpsOrigin && trimmed.startsWith('http://')) {
-      return DEFAULT_HTTPS_TUNNEL || currentOrigin;
-    }
-    return trimmed;
+    return saved;
   }
 
-  // On HTTPS origins, default to the live verified HTTPS tunnel; on local HTTP, default to direct socket
-  return isHttpsOrigin ? DEFAULT_HTTPS_TUNNEL : 'http://127.0.0.1:8000';
+  return isHttpsOrigin ? DEFAULT_HTTPS_SERVER : 'http://127.0.0.1:8000';
 }
 
 export function setStoredServerUrl(url: string): void {
-  localStorage.setItem(LOCAL_SERVER_URL_STORAGE, url.trim().replace(/\/+$/, ''));
+  const clean = url.trim().replace(/\/+$/, '');
+  if (!clean) {
+    localStorage.removeItem(LOCAL_SERVER_URL_STORAGE);
+    return;
+  }
+  localStorage.setItem(LOCAL_SERVER_URL_STORAGE, clean);
 }
 
 export function getStoredServerToken(): string {
@@ -111,7 +138,9 @@ export function setStoredServerToken(token: string): void {
 }
 
 export function getStoredModelSize(): 'tiny' | 'base' | 'small' {
-  return (localStorage.getItem(LOCAL_MODEL_SIZE_STORAGE) as any) || 'tiny';
+  const saved = localStorage.getItem(LOCAL_MODEL_SIZE_STORAGE);
+  if (saved === 'tiny' || saved === 'base' || saved === 'small') return saved;
+  return 'tiny';
 }
 
 export function setStoredModelSize(size: 'tiny' | 'base' | 'small'): void {
@@ -123,7 +152,6 @@ export function getStoredTranscriberEngine(): TranscriberEngine {
   if (saved === 'builtin' || saved === 'local' || saved === 'remote') {
     return saved;
   }
-  // Default to 'builtin' (In-Browser Whisper) so iPhone, Android, and remote devices work 100% out of the box
   return 'builtin';
 }
 
@@ -142,65 +170,44 @@ export interface LocalServerStatus {
 }
 
 /**
- * Checks server health at configured URL or candidate local addresses.
- * Fully compliant with browser Mixed-Content security policies.
+ * Checks server health at configured URL or local LAN candidates.
+ * Respects Mixed-Content policies on HTTPS origins and uses Safari-safe timeouts.
  */
 export async function checkLocalServerHealth(targetUrl?: string): Promise<LocalServerStatus> {
-  const candidateUrls: string[] = [];
   const isHttpsOrigin = typeof window !== 'undefined' && window.location.protocol === 'https:';
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin.replace(/\/+$/, '') : '';
+  const currentOrigin =
+    typeof window !== 'undefined' ? window.location.origin.replace(/\/+$/, '') : '';
+  const candidates = new Set<string>();
 
-  if (targetUrl) {
-    const cleanTarget = targetUrl.trim().replace(/\/+$/, '');
-    if (isHttpsOrigin && cleanTarget.startsWith('http://')) {
-      // Don't add insecure HTTP on HTTPS, try current origin or tunnel instead
-      if (currentOrigin && !candidateUrls.includes(currentOrigin)) candidateUrls.push(currentOrigin);
-      if (!candidateUrls.includes(DEFAULT_HTTPS_TUNNEL)) candidateUrls.push(DEFAULT_HTTPS_TUNNEL);
-    } else {
-      candidateUrls.push(cleanTarget);
-    }
-  }
+  const addCandidate = (u?: string) => {
+    const clean = u?.trim().replace(/\/+$/, '');
+    if (!clean) return;
+    if (isHttpsOrigin && clean.startsWith('http://')) return;
+    candidates.add(clean);
+  };
+
+  addCandidate(targetUrl);
+  addCandidate(getStoredServerUrl());
+  addCandidate(DEFAULT_HTTPS_SERVER);
 
   if (isHttpsOrigin) {
-    // 1. On HTTPS (e.g. aura-player.beacon.host), probe the verified live HTTPS tunnel first
-    if (!candidateUrls.includes(DEFAULT_HTTPS_TUNNEL)) {
-      candidateUrls.push(DEFAULT_HTTPS_TUNNEL);
+    if (currentOrigin && !currentOrigin.includes('github.io')) {
+      addCandidate(currentOrigin);
     }
-    const configured = getStoredServerUrl();
-    if (configured && !candidateUrls.includes(configured) && !configured.startsWith('http://')) {
-      candidateUrls.push(configured);
+  } else if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      addCandidate(`http://${host}:8000`);
     }
-    if (currentOrigin && !currentOrigin.includes('github.io') && !candidateUrls.includes(currentOrigin)) {
-      candidateUrls.push(currentOrigin);
-    }
-  } else {
-    // On local HTTP origins (e.g. localhost:4173 or 192.168.0.100:4173), probe local ports & LAN IP
-    if (!candidateUrls.includes('http://127.0.0.1:8000')) candidateUrls.push('http://127.0.0.1:8000');
-    if (!candidateUrls.includes('http://localhost:8000')) candidateUrls.push('http://localhost:8000');
-    if (typeof window !== 'undefined' && window.location.hostname && !['localhost', '127.0.0.1'].includes(window.location.hostname)) {
-      const hostServer = `http://${window.location.hostname}:8000`;
-      if (!candidateUrls.includes(hostServer)) candidateUrls.push(hostServer);
-    }
-    if (!candidateUrls.includes('http://192.168.0.100:8000')) candidateUrls.push('http://192.168.0.100:8000');
-    if (currentOrigin && !candidateUrls.includes(currentOrigin)) candidateUrls.push(currentOrigin);
-    if (!candidateUrls.includes(DEFAULT_HTTPS_TUNNEL)) candidateUrls.push(DEFAULT_HTTPS_TUNNEL);
+    addCandidate('http://127.0.0.1:8000');
+    addCandidate('http://localhost:8000');
   }
 
-  for (const url of candidateUrls) {
-    const base = url.replace(/\/+$/, '');
-    // Skip insecure HTTP URLs on HTTPS origins to avoid browser mixed-content block
-    if (isHttpsOrigin && base.startsWith('http://')) {
-      continue;
-    }
-
+  for (const base of candidates) {
     try {
-      const res = await fetch(`${base}/health`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(6000),
-      });
+      const res = await fetchWithTimeout(`${base}/health`, { method: 'GET' }, 1800);
       if (res.ok) {
         const data = await res.json();
-        // Update stored working URL
         setStoredServerUrl(base);
         return {
           online: true,
@@ -213,15 +220,16 @@ export async function checkLocalServerHealth(targetUrl?: string): Promise<LocalS
         };
       }
     } catch {
-      // try next candidate
+      // Probe next candidate
     }
   }
 
-  return { online: false, urlChecked: candidateUrls[0] || getStoredServerUrl() };
+  return { online: false, urlChecked: Array.from(candidates)[0] || '' };
 }
 
 /**
- * Transcribes audio via dedicated Python Faster-Whisper server with cancellation support.
+ * Uploads compressed audio directly to Faster-Whisper via XMLHttpRequest
+ * with live upload percentage reporting and zero unnecessary PCM decoding on mobile.
  */
 export async function transcribeWithLocalServer(
   file: File,
@@ -230,46 +238,147 @@ export async function transcribeWithLocalServer(
   modelSize?: 'tiny' | 'base' | 'small',
   abortSignal?: AbortSignal
 ): Promise<TranscriptionResult> {
-  const currentOrigin = typeof window !== 'undefined' ? window.location.origin.replace(/\/+$/, '') : '';
   const isHttpsOrigin = typeof window !== 'undefined' && window.location.protocol === 'https:';
-  let base = (customUrl || getStoredServerUrl() || (currentOrigin.includes('github.io') ? DEFAULT_HTTPS_TUNNEL : currentOrigin)).replace(/\/+$/, '');
+  let base = (customUrl || getStoredServerUrl()).trim().replace(/\/+$/, '');
 
-  // Upgrade insecure HTTP endpoint to verified HTTPS tunnel or valid origin if on HTTPS origin
-  if (isHttpsOrigin && (base.startsWith('http://') || base.includes('github.io'))) {
-    base = DEFAULT_HTTPS_TUNNEL || currentOrigin;
+  if (isHttpsOrigin && base.startsWith('http://')) {
+    base = DEFAULT_HTTPS_SERVER;
+  }
+
+  if (!base) {
+    throw new Error(
+      'No HTTPS Faster-Whisper server URL configured. Enter your HTTPS server URL in Vault Settings or switch to On-Device Whisper.'
+    );
   }
 
   const model = modelSize || getStoredModelSize() || 'tiny';
   const token = getStoredServerToken();
 
-  onProgress?.(`Connecting to Faster-Whisper neural engine at ${base}...`);
+  // Populate genuine PCM spectrum in background so iOS Safari visualizer stays 60fps
+  if (isPhysicalMobileDevice()) {
+    buildAcousticTrackFromBlob(file).catch(() => {});
+  }
+
+  onProgress?.(`Uploading audio to Faster-Whisper (${model}) at ${base}...`);
 
   const formData = new FormData();
   formData.append('file', file);
 
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
+  const data = await new Promise<any>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${base}/transcribe?model_size=${encodeURIComponent(model)}`, true);
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
 
-  const response = await fetch(`${base}/transcribe?model_size=${model}`, {
-    method: 'POST',
-    headers,
-    body: formData,
-    signal: abortSignal,
+    const onAbort = () => {
+      xhr.abort();
+      reject(new DOMException('Transcription cancelled by user', 'AbortError'));
+    };
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
+
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable && ev.total > 0) {
+        const pct = Math.round((ev.loaded / ev.total) * 100);
+        if (pct < 100) {
+          onProgress?.(`Uploading audio to server: ${pct}%...`);
+        } else {
+          onProgress?.('Audio uploaded. Faster-Whisper is transcribing on server...');
+        }
+      }
+    };
+
+    xhr.onload = () => {
+      abortSignal?.removeEventListener('abort', onAbort);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error('Server returned malformed JSON response.'));
+        }
+      } else {
+        reject(new Error(`Server Error (${xhr.status}): ${xhr.responseText || xhr.statusText}`));
+      }
+    };
+
+    xhr.onerror = () => {
+      abortSignal?.removeEventListener('abort', onAbort);
+      reject(new Error(`Could not reach Faster-Whisper server at ${base}.`));
+    };
+
+    xhr.send(formData);
   });
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Server Error (${response.status}): ${err}`);
-  }
-
-  onProgress?.('Extracting verbatim acoustic word timestamps...');
-  const data = await response.json();
-  // The Python engine returns `meta`; normalize it once so every UI path stores
-  // the same engine metadata shape in the offline recording library.
   if (data.meta && !data.engineInfo) {
     data.engineInfo = data.meta;
   }
   return data as TranscriptionResult;
+}
+
+/**
+ * Adaptive cross-platform transcription orchestrator:
+ * - 'local' / 'remote': Uses Faster-Whisper server directly.
+ * - 'builtin': Runs 100% on-device Whisper Web Worker.
+ * - 'auto': Probes Faster-Whisper (<1.8s), uses GPU server if reachable, else runs on-device Whisper Worker.
+ */
+export async function transcribeAudioAdaptive(
+  file: File,
+  options?: {
+    engine?: TranscriberEngine | 'auto';
+    builtinModel?: BuiltinWhisperModel;
+    serverUrl?: string;
+    serverModelSize?: 'tiny' | 'base' | 'small';
+    onProgress?: (status: string) => void;
+    abortSignal?: AbortSignal;
+  }
+): Promise<{ result: TranscriptionResult; effectiveEngine: TranscriberEngine }> {
+  const requested = options?.engine || 'auto';
+
+  if (requested === 'builtin') {
+    const result = await transcribeWithBuiltinWhisper(
+      file,
+      options?.builtinModel || 'whisper-tiny.en',
+      options?.onProgress,
+      options?.abortSignal
+    );
+    return { result, effectiveEngine: 'builtin' };
+  }
+
+  if (requested === 'local' || requested === 'remote') {
+    const result = await transcribeWithLocalServer(
+      file,
+      options?.onProgress,
+      options?.serverUrl,
+      options?.serverModelSize,
+      options?.abortSignal
+    );
+    return { result, effectiveEngine: requested };
+  }
+
+  // Adaptive auto routing
+  options?.onProgress?.('Detecting fastest available transcription engine...');
+  const status = await checkLocalServerHealth(options?.serverUrl);
+  if (status.online && status.urlChecked) {
+    try {
+      const result = await transcribeWithLocalServer(
+        file,
+        options?.onProgress,
+        status.urlChecked,
+        options?.serverModelSize,
+        options?.abortSignal
+      );
+      return { result, effectiveEngine: 'local' };
+    } catch (err: any) {
+      if (err?.name === 'AbortError') throw err;
+      console.warn('[AuRA] Server failed mid-request, falling back to on-device Whisper:', err);
+    }
+  }
+
+  const result = await transcribeWithBuiltinWhisper(
+    file,
+    options?.builtinModel || 'whisper-tiny.en',
+    options?.onProgress,
+    options?.abortSignal
+  );
+  return { result, effectiveEngine: 'builtin' };
 }
