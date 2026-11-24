@@ -64,6 +64,14 @@ import { VaultModal } from './components/VaultModal';
 import { GlobalSearchAndGlossaryPanel } from './components/GlobalSearchAndGlossaryPanel';
 import { applyGlossaryCorrections } from './services/glossaryService';
 import { BrainwaveModal } from './components/BrainwaveModal';
+import { RecallReviewModal } from './components/RecallReviewModal';
+import { consumePendingSharedPayload } from './services/shareTargetService';
+import {
+  getStoredBuiltinModel,
+  getStoredWhisperLanguage,
+  setStoredWhisperLanguage,
+} from './services/builtinWhisperService';
+import { resolveWebAudioOrTranscript } from './services/webImportService';
 import { PlayerBar } from './components/PlayerBar';
 import { FullScreenPlayer } from './components/FullScreenPlayer';
 import { ImportConsentModal } from './components/ImportConsentModal';
@@ -117,6 +125,7 @@ export function App() {
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const [isSearchGlossaryOpen, setIsSearchGlossaryOpen] = useState(false);
   const [isBrainwavesOpen, setIsBrainwavesOpen] = useState(false);
+  const [isRecallOpen, setIsRecallOpen] = useState(false);
   const [isFullScreenOpen, setIsFullScreenOpen] = useState(false);
   const [isCountryModalOpen, setIsCountryModalOpen] = useState(false);
   const [activeCountry, setActiveCountry] = useState<CountryHeritage>(getActiveCountryHeritage);
@@ -605,6 +614,7 @@ export function App() {
     isSearchGlossaryOpen ||
     isSkinsOpen ||
     isBrainwavesOpen ||
+    isRecallOpen ||
     isCountryModalOpen ||
     isWebLinkModalOpen ||
     activeTab !== 'book';
@@ -636,6 +646,8 @@ export function App() {
         setIsSkinsOpen(false);
       } else if (isBrainwavesOpen) {
         setIsBrainwavesOpen(false);
+      } else if (isRecallOpen) {
+        setIsRecallOpen(false);
       } else if (activeTab !== 'book') {
         setActiveTab('book');
       }
@@ -665,6 +677,7 @@ export function App() {
         else if (isVaultOpen) setIsVaultOpen(false);
         else if (isSkinsOpen) setIsSkinsOpen(false);
         else if (isBrainwavesOpen) setIsBrainwavesOpen(false);
+        else if (isRecallOpen) setIsRecallOpen(false);
         else if (activeTab !== 'book') setActiveTab('book');
         else if (isFullscreen) exitFullscreen();
       }
@@ -1080,6 +1093,63 @@ export function App() {
     detectDefaultEngine();
   }, []);
 
+  const [preferredWhisperLang, setPreferredWhisperLang] = useState<string>(getStoredWhisperLanguage);
+
+  // Ingest voice notes, audio files, or URLs shared via OS/PWA Share Sheet
+  useEffect(() => {
+    consumePendingSharedPayload()
+      .then(async (payload) => {
+        if (!payload) return;
+        if (payload.kind === 'audio_file' && payload.file) {
+          setStagedImportFile(payload.file);
+          setToastNotification({
+            message: `Received shared audio "${payload.file.name}" — ready to transcribe!`,
+            type: 'info',
+          });
+        } else if (payload.kind === 'web_url' && payload.url) {
+          setToastNotification({
+            message: `Importing shared link: ${payload.url}`,
+            type: 'info',
+          });
+          setIsTranscribing(true);
+          setTranscriptionStatus('Resolving shared web link...');
+          try {
+            const res = await resolveWebAudioOrTranscript(payload.url, setTranscriptionStatus);
+            if (res.type === 'audio_file' && res.file) {
+              setStagedImportFile(res.file);
+            } else if (res.tokens && res.tokens.length > 0) {
+              handleImportTranscriptDirect(
+                res.title,
+                res.tokens,
+                res.duration || 0,
+                res.speakers,
+                res.audioUrl
+              );
+            }
+          } catch (err: any) {
+            setToastNotification({
+              message: `Could not import shared link: ${err?.message || 'Check URL'}`,
+              type: 'warning',
+            });
+          } finally {
+            setIsTranscribing(false);
+            setTranscriptionStatus('');
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleRateVocabularyCard = (id: string, nextStage: number) => {
+    setSavedVocabulary((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? { ...item, srsStage: nextStage, mastered: nextStage >= 4 }
+          : item
+      )
+    );
+  };
+
   // Audio Synchronization Calibration Offset
   const [syncOffset, setSyncOffset] = useState<number>(() => {
     const stored = localStorage.getItem('aura_sync_offset');
@@ -1386,13 +1456,14 @@ export function App() {
     engine: TranscriberEngine,
     storeAudioInVault: boolean,
     customUrl?: string,
-    builtinModel: BuiltinWhisperModel = 'whisper-tiny.en',
+    builtinModel: BuiltinWhisperModel = getStoredBuiltinModel(),
     fileOverride?: File
   ) => {
     const file = fileOverride || stagedImportFile;
     if (!file) return;
     setStagedImportFile(null);
     setTranscriptionErrorNotice(null);
+    setStoredWhisperLanguage(preferredWhisperLang);
 
     // Persist user's selected engine to app state & storage
     setTranscriberEngine(engine);
@@ -2062,6 +2133,7 @@ export function App() {
                 onDeleteReflection={handleDeleteReflection}
                 onSeek={handleSeek}
                 sessionId={currentSessionId}
+                onOpenRecallDrill={() => setIsRecallOpen(true)}
               />
             )}
 
@@ -2124,6 +2196,17 @@ export function App() {
             onOpenSearchGlossary={() => setIsSearchGlossaryOpen(true)}
             onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
             hasAudioTrack={Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src))}
+            onOpenRecallDrill={() => setIsRecallOpen(true)}
+            recallCount={savedVocabulary.length + (milestoneDossier?.studyFlashcards?.length || 0)}
+            whisperLanguage={preferredWhisperLang}
+            onChangeWhisperLanguage={(lang) => {
+              setPreferredWhisperLang(lang);
+              setStoredWhisperLanguage(lang);
+              setToastNotification({
+                message: `Speech recognition language set to ${lang.toUpperCase()}.`,
+                type: 'info',
+              });
+            }}
             isVoiceoverActive={isVoiceoverMode}
             onToggleVoiceover={() => {
               setIsVoiceoverMode((prev) => {
@@ -2216,6 +2299,7 @@ export function App() {
                   onDeleteReflection={handleDeleteReflection}
                   onSeek={handleSeek}
                   sessionId={currentSessionId}
+                  onOpenRecallDrill={() => setIsRecallOpen(true)}
                 />
               ) : activeTab === 'dossier' ? (
                 <AuthorDossier
@@ -2291,6 +2375,17 @@ export function App() {
             onOpenSearchGlossary={() => setIsSearchGlossaryOpen(true)}
             onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
             hasAudioTrack={Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src))}
+            onOpenRecallDrill={() => setIsRecallOpen(true)}
+            recallCount={savedVocabulary.length + (milestoneDossier?.studyFlashcards?.length || 0)}
+            whisperLanguage={preferredWhisperLang}
+            onChangeWhisperLanguage={(lang) => {
+              setPreferredWhisperLang(lang);
+              setStoredWhisperLanguage(lang);
+              setToastNotification({
+                message: `Speech recognition language set to ${lang.toUpperCase()}.`,
+                type: 'info',
+              });
+            }}
             isVoiceoverActive={isVoiceoverMode}
             onToggleVoiceover={() => {
               setIsVoiceoverMode((prev) => {
@@ -2576,6 +2671,18 @@ export function App() {
           onClose={() => setIsBrainwavesOpen(false)}
         />
       )}
+
+      <RecallReviewModal
+        isOpen={isRecallOpen}
+        onClose={() => setIsRecallOpen(false)}
+        savedVocabulary={savedVocabulary}
+        dossier={milestoneDossier}
+        audioElementRef={audioElementRef}
+        hasAudioTrack={Boolean(
+          activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src)
+        )}
+        onRateVocabularyCard={handleRateVocabularyCard}
+      />
 
       {isCountryModalOpen && (
         <SovereignCountryModal

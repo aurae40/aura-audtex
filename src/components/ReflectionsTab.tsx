@@ -18,6 +18,7 @@ import {
   Compass,
   Mic,
   Radio,
+  Brain,
 } from 'lucide-react';
 import { exportLexiconAsAnki } from '../services/lexiconService';
 import { startVoiceDictation, type DictationSession } from '../services/voiceDictationService';
@@ -32,6 +33,7 @@ interface ReflectionsTabProps {
   onDeleteReflection: (id: string) => void;
   onSeek: (time: number) => void;
   sessionId?: string;
+  onOpenRecallDrill?: () => void;
 }
 
 function formatTime(sec: number): string {
@@ -49,6 +51,7 @@ export const ReflectionsTab: React.FC<ReflectionsTabProps> = ({
   onDeleteReflection,
   onSeek,
   sessionId = 'session_default',
+  onOpenRecallDrill,
 }) => {
   // Sub-view toggle: Reflections vs Vocabulary Vault
   const [activeSubTab, setActiveSubTab] = useState<'reflections' | 'vocab'>('reflections');
@@ -610,14 +613,28 @@ export const ReflectionsTab: React.FC<ReflectionsTabProps> = ({
               </p>
             </div>
 
-            <button
-              onClick={exportVocab}
-              className="apple-btn-secondary"
-              title="Export Vocabulary to Anki or Notion"
-            >
-              <Share2 className="w-3 h-3 text-stone-400" />
-              <span>Export Anki (.tsv)</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {onOpenRecallDrill && (
+                <button
+                  type="button"
+                  onClick={onOpenRecallDrill}
+                  disabled={savedVocabulary.length === 0}
+                  className="apple-btn-primary flex items-center gap-1.5 py-1.5 px-3 text-xs font-semibold disabled:opacity-40"
+                  title="Launch Spaced Repetition Audio Recall Drill"
+                >
+                  <Brain className="w-3.5 h-3.5 text-black" />
+                  <span>Start Audio Recall Drill</span>
+                </button>
+              )}
+              <button
+                onClick={exportVocab}
+                className="apple-btn-secondary"
+                title="Export Vocabulary to Anki or Notion"
+              >
+                <Share2 className="w-3 h-3 text-stone-400" />
+                <span>Export Anki (.tsv)</span>
+              </button>
+            </div>
           </div>
 
           {/* Search & Category Filter Bar */}

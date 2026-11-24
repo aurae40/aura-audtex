@@ -20,8 +20,11 @@ import {
   Square,
   Volume2,
   Search,
+  Languages,
+  GraduationCap,
 } from 'lucide-react';
 import { WaveformRibbon } from './WaveformRibbon';
+import { WHISPER_LANGUAGE_OPTIONS } from '../services/builtinWhisperService';
 
 interface PlayerBarProps {
   isPlaying: boolean;
@@ -57,6 +60,10 @@ interface PlayerBarProps {
   isVoiceoverActive?: boolean;
   onToggleVoiceover?: () => void;
   onOpenSearchGlossary?: () => void;
+  onOpenRecallDrill?: () => void;
+  recallCount?: number;
+  whisperLanguage?: string;
+  onChangeWhisperLanguage?: (lang: string) => void;
 }
 
 const NOISE_LABELS: Record<BrainNoiseType, string> = {
@@ -101,6 +108,10 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   isVoiceoverActive = false,
   onToggleVoiceover,
   onOpenSearchGlossary,
+  onOpenRecallDrill,
+  recallCount = 0,
+  whisperLanguage = 'en',
+  onChangeWhisperLanguage,
 }) => {
   const [showPlayerOptions, setShowPlayerOptions] = useState(false);
   const playerOptionsRef = useRef<HTMLDivElement | null>(null);
@@ -348,6 +359,43 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                     {isVoiceoverActive ? 'On' : 'Off'}
                   </span>
                 </button>
+              )}
+              {onOpenRecallDrill && (
+                <button
+                  onClick={() => {
+                    setShowPlayerOptions(false);
+                    onOpenRecallDrill();
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-between text-xs text-stone-800 dark:text-stone-200 transition-colors cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <GraduationCap className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                    <span>Daily Recall Drill</span>
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
+                    {recallCount || 0} cards
+                  </span>
+                </button>
+              )}
+              {onChangeWhisperLanguage && (
+                <div className="w-full px-3 py-1.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-between text-xs text-stone-800 dark:text-stone-200 transition-colors">
+                  <span className="flex items-center gap-2">
+                    <Languages className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span>Speech Language</span>
+                  </span>
+                  <select
+                    value={whisperLanguage || 'en'}
+                    onChange={(e) => onChangeWhisperLanguage(e.target.value)}
+                    className="bg-black/5 dark:bg-stone-800 text-stone-900 dark:text-stone-100 text-[11px] rounded-lg px-2 py-1 border border-black/10 dark:border-white/15 focus:outline-hidden max-w-[110px] truncate"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {WHISPER_LANGUAGE_OPTIONS.map((opt) => (
+                      <option key={opt.code} value={opt.code} className="bg-stone-900 text-stone-100">
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               )}
               <button
                 onClick={() => {
