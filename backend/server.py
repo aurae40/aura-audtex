@@ -439,6 +439,9 @@ def root():
             "ollama_status": "/ollama/status",
             "ollama_analyze": "/ollama/analyze",
             "ollama_ask": "/ollama/ask",
+            "llm_status": "/llm-status",
+            "analyze": "/analyze",
+            "ask": "/ask",
         },
     }
 
@@ -461,6 +464,9 @@ def api_info():
             "ollama_status": "/ollama/status",
             "ollama_analyze": "/ollama/analyze",
             "ollama_ask": "/ollama/ask",
+            "llm_status": "/llm-status",
+            "analyze": "/analyze",
+            "ask": "/ask",
         },
     }
 
@@ -539,6 +545,7 @@ class OllamaAskRequest(BaseModel):
 
 
 @app.get("/ollama/status")
+@app.get("/llm-status")
 async def ollama_status_endpoint():
     """Detects local Ollama availability, active host, and installed models."""
     from ollama_engine import detect_ollama_status
@@ -547,6 +554,7 @@ async def ollama_status_endpoint():
 
 
 @app.post("/ollama/analyze")
+@app.post("/analyze")
 async def ollama_analyze_endpoint(req: OllamaAnalyzeRequest):
     """Generates source-grounded Marginalia & Author Dossier using local Ollama."""
     from ollama_engine import generate_ollama_analysis
@@ -564,6 +572,7 @@ async def ollama_analyze_endpoint(req: OllamaAnalyzeRequest):
 
 
 @app.post("/ollama/ask")
+@app.post("/ask")
 async def ollama_ask_endpoint(req: OllamaAskRequest):
     """Answers user question with timestamp citations grounded in retrieved audio passages."""
     from ollama_engine import answer_question_with_ollama
