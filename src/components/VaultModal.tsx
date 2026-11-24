@@ -22,6 +22,13 @@ import {
   FileText,
   ChevronRight,
   ChevronLeft,
+  FolderArchive,
+  Printer,
+  Brain,
+  GraduationCap,
+  SlidersHorizontal,
+  ShieldCheck,
+  Layers,
 } from 'lucide-react';
 import type { TranscriberEngine, LocalServerStatus } from '../services/transcriptionService';
 import type { LexiconEntry, RecordingSessionSummary, WordToken, Marginalia, UserHighlight } from '../types';
@@ -429,23 +436,30 @@ export const VaultModal: React.FC<VaultModalProps> = ({
         className="theme-modal w-full max-w-2xl rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col space-y-4 max-h-[92vh] overflow-hidden"
       >
         {/* Modal Top Header */}
-        <div className="flex items-center justify-between border-b border-white/10 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300">
-              <HardDrive className="w-4 h-4" />
+        <div className="flex items-start justify-between border-b border-white/10 pb-4 relative">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500/20 via-amber-600/10 to-orange-500/5 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-sm shrink-0">
+              <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-title text-base sm:text-lg font-bold text-stone-100 flex items-center gap-2">
-                <span>AuRA Offline Library & Vault</span>
-              </h3>
-              <p className="text-[11px] text-stone-400">
-                Durable on-device recordings, speech models & cross-device transfer
+              <div className="flex items-center gap-2">
+                <h3 className="font-sans text-base sm:text-lg font-bold text-white tracking-tight">
+                  Offline Library & Storage Vault
+                </h3>
+                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  100% Offline
+                </span>
+              </div>
+              <p className="text-xs text-stone-400 mt-0.5 font-normal">
+                Local recordings, neural speech models, flashcards & engine settings
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 transition"
+            className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-stone-400 hover:text-white transition flex items-center justify-center shrink-0 active:scale-95 cursor-pointer"
+            aria-label="Close Vault"
           >
             <X className="w-4 h-4" />
           </button>
@@ -453,146 +467,176 @@ export const VaultModal: React.FC<VaultModalProps> = ({
 
         {/* Global Feedback Toast */}
         {actionFeedback && (
-          <div className="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-mono animate-in fade-in flex items-center justify-between">
-            <span>{actionFeedback}</span>
-            <button onClick={() => setActionFeedback(null)} className="text-stone-400 hover:text-white">
-              <X className="w-3 h-3" />
+          <div className="px-3.5 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-sans animate-in fade-in flex items-center justify-between">
+            <span className="font-medium">{actionFeedback}</span>
+            <button onClick={() => setActionFeedback(null)} className="text-stone-400 hover:text-white p-1">
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
-        {/* VIEW 1: INITIAL HUB — ONLY THE 5 TAPPABLE PARTS */}
+        {/* VIEW 1: INITIAL HUB — 5 WORKSPACE MODULES */}
         {activeTab === null ? (
           <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 py-1 animate-in fade-in duration-200">
-            <div className="text-[11px] text-stone-400 font-mono flex items-center justify-between px-1 pb-1 border-b border-white/5">
-              <span>Select a chamber to enter:</span>
-              <span className="text-amber-400 font-semibold">5 Vault Chambers</span>
+            <div className="flex items-center justify-between px-1 pb-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-stone-400 font-sans">
+                Vault Sections
+              </span>
+              <span className="text-[11px] text-stone-400 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                <span className="font-medium text-stone-300">5 Modules Ready</span>
+              </span>
             </div>
 
-            {/* 1. Recordings */}
+            {/* 1. Recordings & Transcripts */}
             <button
               onClick={() => setActiveTab('library')}
-              className="w-full group p-3.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/10 hover:border-amber-400/50 transition-all flex items-center justify-between text-left cursor-pointer active:scale-[0.99] shadow-sm hover:shadow-amber-500/10"
+              className="w-full group p-3.5 sm:p-4 rounded-2xl bg-white/[0.025] hover:bg-white/[0.06] border border-white/8 hover:border-amber-500/40 transition-all duration-200 flex items-center justify-between text-left cursor-pointer active:scale-[0.995] shadow-xs hover:shadow-lg hover:shadow-amber-500/5"
             >
               <div className="flex items-center gap-3.5 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-300 group-hover:scale-105 transition-transform shrink-0">
-                  <BookOpen className="w-5 h-5" />
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500/20 via-amber-600/10 to-transparent border border-amber-500/30 flex items-center justify-center text-amber-300 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
+                  <FolderArchive className="w-5 h-5" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-bold text-stone-100 flex items-center gap-2">
-                    <span>Recordings</span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-stone-800 text-amber-300 border border-white/10">
-                      {sessions.length}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-stone-100 group-hover:text-amber-300 transition-colors">
+                      Audio Recordings & Archives
+                    </span>
+                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                      {sessions.length} {sessions.length === 1 ? 'saved' : 'saved'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-stone-400 mt-0.5 font-mono truncate">
-                    Saved audio codices, transcripts & .aura archives
+                  <p className="text-xs text-stone-400 mt-1 font-normal truncate">
+                    Saved audio codices, verbatim transcripts, milestones & .aura backups
                   </p>
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+              <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-amber-300 group-hover:translate-x-1 transition-all shrink-0 ml-3" />
             </button>
 
             {/* 2. PDF Exporter */}
             <button
               onClick={() => setActiveTab('pdf')}
-              className="w-full group p-3.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/10 hover:border-amber-400/50 transition-all flex items-center justify-between text-left cursor-pointer active:scale-[0.99] shadow-sm hover:shadow-amber-500/10"
+              className="w-full group p-3.5 sm:p-4 rounded-2xl bg-white/[0.025] hover:bg-white/[0.06] border border-white/8 hover:border-rose-500/40 transition-all duration-200 flex items-center justify-between text-left cursor-pointer active:scale-[0.995] shadow-xs hover:shadow-lg hover:shadow-rose-500/5"
             >
               <div className="flex items-center gap-3.5 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-300 group-hover:scale-105 transition-transform shrink-0">
-                  <FileText className="w-5 h-5" />
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-rose-500/20 via-rose-600/10 to-transparent border border-rose-500/30 flex items-center justify-center text-rose-300 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
+                  <Printer className="w-5 h-5" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-bold text-stone-100 flex items-center gap-2">
-                    <span>PDF Exporter</span>
-                    <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
-                      ILLUMINATED
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-stone-100 group-hover:text-rose-300 transition-colors">
+                      Illuminated PDF Studio
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30 tracking-wide">
+                      A4 EXECUTIVE
                     </span>
                   </div>
-                  <p className="text-[11px] text-stone-400 mt-0.5 font-mono truncate">
-                    Publication-grade A4 PDF reports with highlights & notes
+                  <p className="text-xs text-stone-400 mt-1 font-normal truncate">
+                    Publication-grade A4 dossier reports with timestamps, marginalia & quotes
                   </p>
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+              <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-rose-300 group-hover:translate-x-1 transition-all shrink-0 ml-3" />
             </button>
 
             {/* 3. AI Speech Models */}
             <button
               onClick={() => setActiveTab('models')}
-              className="w-full group p-3.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/10 hover:border-amber-400/50 transition-all flex items-center justify-between text-left cursor-pointer active:scale-[0.99] shadow-sm hover:shadow-amber-500/10"
+              className="w-full group p-3.5 sm:p-4 rounded-2xl bg-white/[0.025] hover:bg-white/[0.06] border border-white/8 hover:border-emerald-500/40 transition-all duration-200 flex items-center justify-between text-left cursor-pointer active:scale-[0.995] shadow-xs hover:shadow-lg hover:shadow-emerald-500/5"
             >
               <div className="flex items-center gap-3.5 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-300 group-hover:scale-105 transition-transform shrink-0">
-                  <Cpu className="w-5 h-5" />
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500/20 via-emerald-600/10 to-transparent border border-emerald-500/30 flex items-center justify-center text-emerald-300 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
+                  <Brain className="w-5 h-5" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-bold text-stone-100 flex items-center gap-2">
-                    <span>AI Speech Models</span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-stone-800 text-stone-300 border border-white/10">
-                      ON-DEVICE
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-stone-100 group-hover:text-emerald-300 transition-colors">
+                      On-Device Speech Models
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                      {offlineModels.filter((m) => m.isDownloaded).length > 0
+                        ? `${offlineModels.filter((m) => m.isDownloaded).length} OFFLINE READY`
+                        : 'WEBGPU • ON-DEVICE'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-stone-400 mt-0.5 font-mono truncate">
-                    Neural Whisper weights for 100% offline speech transcription
+                  <p className="text-xs text-stone-400 mt-1 font-normal truncate">
+                    Whisper neural net weights cached locally for 100% offline private transcription
                   </p>
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+              <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-emerald-300 group-hover:translate-x-1 transition-all shrink-0 ml-3" />
             </button>
 
             {/* 4. Study Lexicon */}
             <button
               onClick={() => setActiveTab('lexicon')}
-              className="w-full group p-3.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/10 hover:border-amber-400/50 transition-all flex items-center justify-between text-left cursor-pointer active:scale-[0.99] shadow-sm hover:shadow-amber-500/10"
+              className="w-full group p-3.5 sm:p-4 rounded-2xl bg-white/[0.025] hover:bg-white/[0.06] border border-white/8 hover:border-sky-500/40 transition-all duration-200 flex items-center justify-between text-left cursor-pointer active:scale-[0.995] shadow-xs hover:shadow-lg hover:shadow-sky-500/5"
             >
               <div className="flex items-center gap-3.5 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-300 group-hover:scale-105 transition-transform shrink-0">
-                  <BookA className="w-5 h-5" />
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-sky-500/20 via-sky-600/10 to-transparent border border-sky-500/30 flex items-center justify-center text-sky-300 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
+                  <GraduationCap className="w-5 h-5" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-bold text-stone-100 flex items-center gap-2">
-                    <span>Study Lexicon</span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-stone-800 text-amber-300 border border-white/10">
-                      {savedVocabularyCount}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-stone-100 group-hover:text-sky-300 transition-colors">
+                      Study Lexicon & Flashcards
+                    </span>
+                    <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30">
+                      {savedVocabularyCount} {savedVocabularyCount === 1 ? 'term' : 'terms'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-stone-400 mt-0.5 font-mono truncate">
-                    Saved vocabulary definitions, Leitner SRS & Anki flashcards
+                  <p className="text-xs text-stone-400 mt-1 font-normal truncate">
+                    Interactive vocabulary library, Leitner spaced-repetition & Anki export
                   </p>
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+              <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-sky-300 group-hover:translate-x-1 transition-all shrink-0 ml-3" />
             </button>
 
             {/* 5. Engine Config */}
             <button
               onClick={() => setActiveTab('settings')}
-              className="w-full group p-3.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/10 hover:border-amber-400/50 transition-all flex items-center justify-between text-left cursor-pointer active:scale-[0.99] shadow-sm hover:shadow-amber-500/10"
+              className="w-full group p-3.5 sm:p-4 rounded-2xl bg-white/[0.025] hover:bg-white/[0.06] border border-white/8 hover:border-purple-500/40 transition-all duration-200 flex items-center justify-between text-left cursor-pointer active:scale-[0.995] shadow-xs hover:shadow-lg hover:shadow-purple-500/5"
             >
               <div className="flex items-center gap-3.5 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-300 group-hover:scale-105 transition-transform shrink-0">
-                  <Server className="w-5 h-5" />
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-purple-500/20 via-purple-600/10 to-transparent border border-purple-500/30 flex items-center justify-center text-purple-300 group-hover:scale-105 transition-transform shrink-0 shadow-inner">
+                  <SlidersHorizontal className="w-5 h-5" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-bold text-stone-100 flex items-center gap-2">
-                    <span>Engine Config</span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-stone-800 text-stone-300 border border-white/10 uppercase">
-                      {transcriberEngine}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-stone-100 group-hover:text-purple-300 transition-colors">
+                      Speech Engine & Hardware
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 uppercase tracking-wide">
+                      {transcriberEngine} ACTIVE
                     </span>
                   </div>
-                  <p className="text-[11px] text-stone-400 mt-0.5 font-mono truncate">
-                    Faster-Whisper server URL, health checks & neural switching
+                  <p className="text-xs text-stone-400 mt-1 font-normal truncate">
+                    Faster-Whisper server address, GPU acceleration profile & engine switching
                   </p>
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all shrink-0 ml-2" />
+              <ChevronRight className="w-5 h-5 text-stone-500 group-hover:text-purple-300 group-hover:translate-x-1 transition-all shrink-0 ml-3" />
             </button>
 
             {/* Storage Footnote */}
-            <div className="pt-2 flex items-center justify-between text-[10px] font-mono text-stone-500 border-t border-white/5">
-              <span>IndexedDB Storage: {usedMB} MB used</span>
-              <span className="text-emerald-400 font-semibold">100% Offline & Private</span>
+            <div className="pt-3 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-stone-400 font-sans">
+                <HardDrive className="w-3.5 h-3.5 text-amber-400/80 shrink-0" />
+                <span>
+                  Storage Used: <strong className="text-stone-200 font-semibold font-mono">{usedMB} MB</strong>
+                </span>
+                {storageStats.quotaBytes > 0 && (
+                  <span className="text-stone-500 text-[11px] font-mono">
+                    (of {quotaGB} GB quota)
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[11px] font-medium font-sans">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>100% Private & Sandboxed On-Device</span>
+              </div>
             </div>
           </div>
         ) : (
@@ -602,10 +646,10 @@ export const VaultModal: React.FC<VaultModalProps> = ({
               <button
                 onClick={() => setActiveTab(null)}
                 className="px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-amber-200 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 border border-amber-500/30 cursor-pointer shrink-0 shadow-sm"
-                title="Return to 5-Button Vault Hub"
+                title="Return to Vault Hub"
               >
                 <ChevronLeft className="w-4 h-4" />
-                <span>← All 5 Chambers</span>
+                <span>← Back to Vault Hub</span>
               </button>
 
               <div className="flex items-center gap-1 overflow-x-auto scrollbar-none text-xs">
