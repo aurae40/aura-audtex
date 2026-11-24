@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aura-audtex-pwa-v15';
+const CACHE_NAME = 'aura-audtex-pwa-v16';
 const SHARE_INBOX_CACHE = 'aura-share-target-inbox-v1';
 const SHARE_INBOX_KEY = '/__aura_shared_audio__';
 
@@ -85,6 +85,7 @@ self.addEventListener('fetch', (event) => {
   // Bypass backend API and cached media stream routes
   if (
     url.pathname.startsWith('/audio/') ||
+    url.pathname.startsWith('/ws/') ||
     url.pathname.endsWith('/health') ||
     url.pathname.endsWith('/models') ||
     url.pathname.endsWith('/llm-status') ||

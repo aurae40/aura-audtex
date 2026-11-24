@@ -8,12 +8,14 @@ const isSingleFile = process.env.VITE_SINGLE_FILE === 'true';
 const backendProxy = {
   '/health': 'http://127.0.0.1:8000',
   '/transcribe': 'http://127.0.0.1:8000',
+  '/transcribe-chunk': 'http://127.0.0.1:8000',
   '/transcribe-url': 'http://127.0.0.1:8000',
   '/audio': 'http://127.0.0.1:8000',
   '/models': 'http://127.0.0.1:8000',
   '/llm-status': 'http://127.0.0.1:8000',
   '/analyze': 'http://127.0.0.1:8000',
   '/ask': 'http://127.0.0.1:8000',
+  '/ws': { target: 'ws://127.0.0.1:8000', ws: true },
 };
 
 export default defineConfig({

@@ -12,9 +12,21 @@ import socket
 import tempfile
 import asyncio
 import subprocess
+import json
 from typing import List, Dict, Any, Optional
 
-from fastapi import FastAPI, UploadFile, File, Query, HTTPException, Header, Request, Response
+from fastapi import (
+    FastAPI,
+    UploadFile,
+    File,
+    Query,
+    HTTPException,
+    Header,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -31,6 +43,11 @@ except ImportError:
         generate_ollama_analysis,
         answer_question_with_ollama,
     )
+
+try:
+    from meeting_signaling import meeting_room_manager
+except ImportError:
+    from backend.meeting_signaling import meeting_room_manager
 
 app = FastAPI(
     title="AuRA_AuDTEX Local Transcriber",
@@ -449,6 +466,7 @@ def root():
             "transcribe": "/transcribe",
             "transcribe_chunk": "/transcribe-chunk",
             "transcribe_url": "/transcribe-url",
+            "ws_meeting": "/ws/meeting/{room_id}",
             "models": "/models",
             "ollama_status": "/ollama/status",
             "ollama_analyze": "/ollama/analyze",
@@ -475,6 +493,7 @@ def api_info():
             "transcribe": "/transcribe",
             "transcribe_chunk": "/transcribe-chunk",
             "transcribe_url": "/transcribe-url",
+            "ws_meeting": "/ws/meeting/{room_id}",
             "models": "/models",
             "ollama_status": "/ollama/status",
             "ollama_analyze": "/ollama/analyze",
@@ -1047,6 +1066,35 @@ async def transcribe_live_chunk(
                 os.remove(tmp_path)
             except Exception:
                 pass
+
+
+@app.websocket("/ws/meeting/{room_id}")
+async def audio_meeting_websocket(
+    websocket: WebSocket,
+    room_id: str,
+    peer_id: str = Query(...),
+    name: str = Query("Participant"),
+    token: Optional[str] = Query(None),
+):
+    """
+    WebSocket signaling channel for audio-only WebRTC meetings.
+    Coordinates peer connection offers/answers, ICE candidates, speaking detection,
+    mandatory live recording disclosure, and synchronized transcript streaming.
+    """
+    required_token = os.environ.get("AURA_AUTH_TOKEN")
+    if required_token and token != required_token:
+        await websocket.close(code=4401)
+        return
+
+    await websocket.accept()
+    room = await meeting_room_manager.join_room(room_id, peer_id, name, websocket)
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            data = json.loads(raw)
+            await meeting_room_manager.handle_message(room, peer_id, data)
+    except (WebSocketDisconnect, Exception):
+        await meeting_room_manager.leave_room(room_id, peer_id)
 
 
 # Serve production frontend so mobile devices on LAN can open http://<LAN_IP>:8000/

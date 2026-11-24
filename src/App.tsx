@@ -34,6 +34,8 @@ import {
 import { LiveMeetingCockpit, LiveMicHelpModal } from './components/LiveMeetingCockpit';
 import { WebLinkImportModal } from './components/WebLinkImportModal';
 import { LiveMeetingModal } from './components/LiveMeetingModal';
+import { AudioMeetingRoomClient, type MeetingRoomState } from './services/meetingRoomService';
+import { AudioMeetingRoomModal, LiveRecordingAlertBar } from './components/AudioMeetingRoomModal';
 import {
   getStoredTranscriberEngine,
   setStoredTranscriberEngine,
@@ -625,6 +627,23 @@ export function App() {
   const [isVoiceoverMode, setIsVoiceoverMode] = useState(false);
   const liveEngineRef = useRef<LiveMeetingEngine | null>(null);
 
+  // Audio Meeting Room WebRTC State
+  const [isAudioRoomOpen, setIsAudioRoomOpen] = useState(false);
+  const [initialInviteRoomCode, setInitialInviteRoomCode] = useState('');
+  const [meetingRoomState, setMeetingRoomState] = useState<MeetingRoomState | null>(null);
+  const [meetingError, setMeetingError] = useState<string | null>(null);
+  const meetingClientRef = useRef<AudioMeetingRoomClient | null>(null);
+
+  // Auto-open Audio Meeting Room if user opened a shared ?room=AURA-XXXX link
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const roomCode = params.get('room');
+    if (roomCode) {
+      setInitialInviteRoomCode(roomCode.toUpperCase());
+      setIsAudioRoomOpen(true);
+    }
+  }, []);
+
   // Clean Back-Button / Swipe-Back Handling (Pushes history once per overlay session, never spams)
   const hasOverlayOpen =
     isFullScreenOpen ||
@@ -636,6 +655,7 @@ export function App() {
     isCountryModalOpen ||
     isWebLinkModalOpen ||
     isLiveStudioOpen ||
+    isAudioRoomOpen ||
     Boolean(micHelpMessage) ||
     activeTab !== 'book';
   const pushedHistoryRef = useRef(false);
@@ -654,6 +674,8 @@ export function App() {
       pushedHistoryRef.current = false;
       if (isFullScreenOpen) {
         handleCloseFullScreen();
+      } else if (isAudioRoomOpen) {
+        setIsAudioRoomOpen(false);
       } else if (isSearchGlossaryOpen) {
         setIsSearchGlossaryOpen(false);
       } else if (isWebLinkModalOpen) {
@@ -681,6 +703,7 @@ export function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [
     isFullScreenOpen,
+    isAudioRoomOpen,
     isSearchGlossaryOpen,
     isWebLinkModalOpen,
     micHelpMessage,
@@ -1120,6 +1143,103 @@ export function App() {
     await handleStartLiveMeeting({
       audioSource: source,
       language: preferredWhisperLang,
+    });
+  };
+
+  const handleJoinOrCreateAudioRoom = async (roomId: string, displayName: string) => {
+    setMeetingError(null);
+    pausePlay();
+    const client = new AudioMeetingRoomClient(
+      (state) => setMeetingRoomState(state),
+      (incomingTokens) => {
+        setTokens((prev) => [...prev, ...incomingTokens]);
+        const last = incomingTokens[incomingTokens.length - 1];
+        if (last) {
+          setCurrentTime(last.start);
+          setDuration((prev) => Math.max(prev, last.end + 1));
+        }
+      }
+    );
+    meetingClientRef.current = client;
+    setTokens([]);
+    setBookTitle(`Audio Room ${roomId}`);
+    setChapterTitle('Live Embedded Audio Meeting');
+    try {
+      await client.joinRoom({ roomId, displayName, autoRecord: true });
+      setToastNotification({
+        message: `Audio Recording Is Live in Room ${roomId} — all participants notified.`,
+        type: 'info',
+      });
+    } catch (err: any) {
+      setMeetingError(err?.message || 'Could not start audio room.');
+      meetingClientRef.current = null;
+    }
+  };
+
+  const handleLeaveAndSaveAudioRoom = async () => {
+    const client = meetingClientRef.current;
+    if (!client) return;
+    const result = await client.leaveRoom();
+    meetingClientRef.current = null;
+    setMeetingRoomState(null);
+    setIsAudioRoomOpen(false);
+
+    if (result.audioBlob) {
+      buildAcousticTrackFromBlob(result.audioBlob).catch(() => {});
+    }
+    if (result.audioUrl) setAudioSource(result.audioUrl);
+    setTokens(result.tokens);
+    setSpeakers(result.speakers);
+    setDuration(result.duration);
+    setCurrentTime(0);
+
+    const sessionId = `meeting_${Date.now()}`;
+    const title = `Audio Meeting ${result.roomId}`;
+    setCurrentSessionId(sessionId);
+    setBookTitle(title);
+    setChapterTitle('Recorded Audio Meeting Codex');
+
+    const sessionRecord: RecordingSession = {
+      id: sessionId,
+      fingerprint: sessionId,
+      title,
+      chapter: 'Audio Meeting Codex',
+      fileName: `${title}.m4a`,
+      fileSize: result.audioBlob?.size || 0,
+      duration: result.duration,
+      mimeType: result.audioBlob?.type || 'audio/mp4',
+      createdAt: new Date().toISOString(),
+      lastPlayedAt: new Date().toISOString(),
+      lastPlaybackPositionSec: 0,
+      tokens: result.tokens,
+      speakers: result.speakers,
+      marginalia: [],
+      dossier: {
+        pageNumber: 1,
+        wordCountTrigger: result.tokens.length,
+        audioTimestampSec: Math.round(result.duration * 0.5),
+        timeFormatted: formatTime(Math.round(result.duration * 0.5)),
+        unspokenSubtext: 'Recorded multi-participant audio meeting.',
+        subtextScore: 'Live Audio Room',
+        thesisSteps: [{ pages: 'Meeting', description: 'Audio meeting captured and transcribed live.' }],
+        actionableBridge: 'Export the 1-Tap Meeting Brief from the Page 10 tab.',
+        studyFlashcards: [],
+      },
+      lexicon: extractTranscriptVocabulary(result.tokens),
+      highlights: [],
+      reflections: [],
+      userSummary: '',
+      hasAudio: Boolean(result.audioBlob),
+      audioBlob: result.audioBlob || undefined,
+      engineUsed: 'AuRA Embedded Audio Room + Faster-Whisper',
+    };
+    saveRecordingSession(sessionRecord).catch(() => {});
+    if (result.tokens.length > 0) {
+      runCognitiveAnalysis(result.tokens, result.duration, title, 'meeting', sessionId);
+    }
+    setToastNotification({
+      message: `Audio Meeting saved (${result.tokens.length} words). Ready to replay or export Meeting Brief!`,
+      type: 'info',
     });
   };
 
@@ -2163,6 +2283,39 @@ export function App() {
       }`}
       style={{ backgroundColor: 'var(--chassis-bg)' }}
     >
+      {/* GLOBAL PERSISTENT LIVE RECORDING BEACON (Always visible across all tabs & fullscreen views) */}
+      <LiveRecordingAlertBar
+        isRecording={Boolean(meetingRoomState?.isRecording || isLiveRecording)}
+        label={meetingRoomState?.isRecording ? `Room ${meetingRoomState.roomId}` : 'Live Lecture'}
+        durationSec={
+          meetingRoomState?.isRecording
+            ? meetingRoomState.recordingDurationSec
+            : liveRecordingDuration
+        }
+        activeSpeaker={
+          meetingRoomState?.isRecording
+            ? meetingRoomState.activeSpeakerName
+            : liveSessionState?.currentSpeaker
+        }
+        participantCount={meetingRoomState?.participants.length}
+        isMuted={meetingRoomState?.isMuted}
+        onToggleMute={
+          meetingRoomState?.isConnected
+            ? () => meetingClientRef.current?.toggleMute()
+            : undefined
+        }
+        onOpenRoom={
+          meetingRoomState?.isConnected ? () => setIsAudioRoomOpen(true) : undefined
+        }
+        onStopRecording={() => {
+          if (meetingRoomState?.isConnected) {
+            handleLeaveAndSaveAudioRoom();
+          } else {
+            handleToggleLiveMeeting();
+          }
+        }}
+      />
+
       {/* 1. UNIVERSAL FULL-SCREEN TRANSCRIBED CC FOCUS MODE (100% DEVICE SCREEN OVERRIDE ON ALL DEVICES) */}
       {isFullScreenOpen ? (
         <FullScreenPlayer
@@ -2363,6 +2516,7 @@ export function App() {
             onTogglePauseLive={handleTogglePauseLive}
             onFlagMomentLive={handleFlagMomentLive}
             onOpenLiveStudio={() => setIsLiveStudioOpen(true)}
+            onOpenAudioRoom={() => setIsAudioRoomOpen(true)}
             onOpenSearchGlossary={() => setIsSearchGlossaryOpen(true)}
             onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
             hasAudioTrack={Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src))}
@@ -2546,6 +2700,7 @@ export function App() {
             onTogglePauseLive={handleTogglePauseLive}
             onFlagMomentLive={handleFlagMomentLive}
             onOpenLiveStudio={() => setIsLiveStudioOpen(true)}
+            onOpenAudioRoom={() => setIsAudioRoomOpen(true)}
             onOpenSearchGlossary={() => setIsSearchGlossaryOpen(true)}
             onOpenWebLinkModal={() => setIsWebLinkModalOpen(true)}
             hasAudioTrack={Boolean(activeBlobUrlRef.current || (audioElementRef.current && audioElementRef.current.src))}
@@ -2938,6 +3093,19 @@ export function App() {
           setPreferredWhisperLang(lang);
           setStoredWhisperLanguage(lang);
         }}
+      />
+
+      {/* Embedded Audio-Only WebRTC Meeting Room Modal */}
+      <AudioMeetingRoomModal
+        isOpen={isAudioRoomOpen}
+        onClose={() => setIsAudioRoomOpen(false)}
+        roomState={meetingRoomState}
+        initialRoomCode={initialInviteRoomCode}
+        liveTokens={tokens}
+        onJoinOrCreateRoom={handleJoinOrCreateAudioRoom}
+        onToggleMute={() => meetingClientRef.current?.toggleMute()}
+        onLeaveAndSave={handleLeaveAndSaveAudioRoom}
+        errorMessage={meetingError}
       />
 
       {/* iOS Safari Home Screen Fullscreen Guide Banner */}

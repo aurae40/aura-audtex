@@ -23,6 +23,7 @@ import {
   Languages,
   GraduationCap,
   Star,
+  Users,
 } from 'lucide-react';
 import { WaveformRibbon } from './WaveformRibbon';
 import { WHISPER_LANGUAGE_OPTIONS } from '../services/builtinWhisperService';
@@ -60,6 +61,7 @@ interface PlayerBarProps {
   onTogglePauseLive?: () => void;
   onFlagMomentLive?: () => void;
   onOpenLiveStudio?: () => void;
+  onOpenAudioRoom?: () => void;
   onOpenWebLinkModal?: () => void;
   hasAudioTrack?: boolean;
   isVoiceoverActive?: boolean;
@@ -112,6 +114,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   onTogglePauseLive,
   onFlagMomentLive,
   onOpenLiveStudio,
+  onOpenAudioRoom,
   onOpenWebLinkModal,
   hasAudioTrack = false,
   isVoiceoverActive = false,
@@ -379,6 +382,23 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                   </span>
                   <span className="text-[10px] font-mono text-rose-600 dark:text-rose-400 font-bold">
                     {isLiveRecording ? (isLivePaused ? 'PAUSED' : 'REC') : 'Configure'}
+                  </span>
+                </button>
+              )}
+              {onOpenAudioRoom && (
+                <button
+                  onClick={() => {
+                    setShowPlayerOptions(false);
+                    onOpenAudioRoom();
+                  }}
+                  className="w-full px-3 py-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 flex items-center justify-between text-xs text-stone-800 dark:text-stone-200 transition-colors cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <Users className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span>Start / Join Audio Meeting Room</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-amber-600 dark:text-amber-400 font-bold">
+                    WebRTC
                   </span>
                 </button>
               )}

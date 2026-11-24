@@ -6,3 +6,4 @@ av<14
 pydantic>=2.6.0
 numpy>=1.26.0
 yt-dlp>=2024.8.6
+websockets>=12.0
