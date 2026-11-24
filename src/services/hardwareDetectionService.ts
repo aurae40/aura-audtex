@@ -5,8 +5,10 @@ export interface HardwareScreenProfile {
   deviceModelName: string;
   isIOS: boolean;
   isAndroid: boolean;
+  isSafari: boolean;
   isDesktop: boolean;
   isPhysicalMobile: boolean;
+  shouldBypassMediaElementWebAudio: boolean;
   hasDynamicIsland: boolean;
   hasNotch: boolean;
   isStandalonePWA: boolean;
@@ -15,20 +17,32 @@ export interface HardwareScreenProfile {
   pixelRatio: number;
 }
 
+export function isIOSWebKit(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return (
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  );
+}
+
 export function isPhysicalMobileDevice(): boolean {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
-  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isIOS = isIOSWebKit();
   const isAndroid = /Android/i.test(ua);
   const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
-  const isTouchDevice = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || 'ontouchstart' in window;
-  const isNarrowScreen = window.innerWidth <= 768;
-  return isIOS || isAndroid || isMobileUA || Boolean(isTouchDevice) || isNarrowScreen;
+  const hasCoarsePointer =
+    typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+  const isSmallViewport =
+    Math.min(window.screen?.width || window.innerWidth, window.innerWidth) <= 820;
+
+  return isIOS || isAndroid || isMobileUA || (hasCoarsePointer && isSmallViewport);
 }
 
 /**
  * Detects actual device hardware screen characteristics, operating system,
- * safe-area cutouts (Dynamic Island vs Android Punch-Hole vs Notch), and display mode.
+ * safe-area cutouts (Dynamic Island vs Notch vs Punch-Hole), and Web Audio capabilities.
  */
 export function detectHardwareScreen(): HardwareScreenProfile {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
@@ -37,8 +51,10 @@ export function detectHardwareScreen(): HardwareScreenProfile {
       deviceModelName: 'Desktop Web',
       isIOS: false,
       isAndroid: false,
+      isSafari: false,
       isDesktop: true,
       isPhysicalMobile: false,
+      shouldBypassMediaElementWebAudio: false,
       hasDynamicIsland: false,
       hasNotch: false,
       isStandalonePWA: false,
@@ -53,45 +69,33 @@ export function detectHardwareScreen(): HardwareScreenProfile {
   const screenH = window.screen?.height || window.innerHeight || 844;
   const pixelRatio = window.devicePixelRatio || 1;
 
-  // 1. Detect iOS Hardware (iPhone, iPad, iPod)
-  const isIOS =
-    /iPad|iPhone|iPod/.test(ua) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-  // 2. Detect Android Hardware
+  const isIOS = isIOSWebKit();
   const isAndroid = /Android/i.test(ua);
+  const isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(ua);
 
-  // 3. Platform classification
   let platform: DevicePlatform = 'desktop';
   if (isIOS) platform = 'ios';
   else if (isAndroid) platform = 'android';
 
-  const isDesktop = platform === 'desktop';
+  const isPhysicalMobile = isPhysicalMobileDevice();
+  const isDesktop = !isPhysicalMobile && platform === 'desktop';
 
-  // 4. Standalone PWA / Fullscreen detection
   const isStandalonePWA =
     window.matchMedia('(display-mode: standalone)').matches ||
-    (navigator as any).standalone === true ||
+    (navigator as unknown as { standalone?: boolean }).standalone === true ||
     window.matchMedia('(display-mode: fullscreen)').matches;
 
-  // 5. Hardware Cutout Detection (Dynamic Island vs Notch vs Punch-Hole)
-  // Dynamic Island iPhones have 393x852 (14/15/16 Pro), 430x932 (14/15/16 Pro Max), 402x874 (16), 440x956 (16 Pro Max)
   const isDynamicIslandIPhone =
     isIOS &&
     ((screenW === 393 && screenH === 852) ||
       (screenW === 430 && screenH === 932) ||
       (screenW === 402 && screenH === 874) ||
       (screenW === 440 && screenH === 956) ||
-      // Landscape orientations
       (screenW === 852 && screenH === 393) ||
       (screenW === 932 && screenH === 430));
 
-  const hasNotch =
-    isIOS &&
-    !isDynamicIslandIPhone &&
-    (screenH >= 812 || screenW >= 812);
+  const hasNotch = isIOS && !isDynamicIslandIPhone && (screenH >= 812 || screenW >= 812);
 
-  // Device naming
   let deviceModelName = 'Desktop System';
   if (isIOS) {
     if (isDynamicIslandIPhone) {
@@ -102,7 +106,6 @@ export function detectHardwareScreen(): HardwareScreenProfile {
       deviceModelName = /iPad/.test(ua) ? 'Apple iPad' : 'Apple iPhone';
     }
   } else if (isAndroid) {
-    // Try to extract Android model name from user agent
     const match = ua.match(/Android\s+[\d.]+;\s*([^;)]+)\s*Build/i);
     deviceModelName = match ? match[1].trim() : 'Android Device';
   }
@@ -112,8 +115,10 @@ export function detectHardwareScreen(): HardwareScreenProfile {
     deviceModelName,
     isIOS,
     isAndroid,
+    isSafari,
     isDesktop,
-    isPhysicalMobile: isIOS || isAndroid || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) || (navigator.maxTouchPoints > 0 || 'ontouchstart' in window) || screenW <= 768,
+    isPhysicalMobile,
+    shouldBypassMediaElementWebAudio: isIOS,
     hasDynamicIsland: isDynamicIslandIPhone,
     hasNotch,
     isStandalonePWA,
