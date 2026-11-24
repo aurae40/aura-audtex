@@ -1,36 +1,49 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
-import { viteSingleFile } from 'vite-plugin-singlefile'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { viteSingleFile } from 'vite-plugin-singlefile';
 
-// https://vite.dev/config/
+const isSingleFile = process.env.VITE_SINGLE_FILE === 'true';
+
+const backendProxy = {
+  '/health': 'http://127.0.0.1:8000',
+  '/transcribe': 'http://127.0.0.1:8000',
+  '/transcribe-url': 'http://127.0.0.1:8000',
+  '/audio': 'http://127.0.0.1:8000',
+  '/models': 'http://127.0.0.1:8000',
+};
+
 export default defineConfig({
   base: './',
   plugins: [
     react(),
     tailwindcss(),
-    viteSingleFile(),
+    ...(isSingleFile ? [viteSingleFile()] : []),
   ],
+  worker: {
+    format: 'es',
+  },
   server: {
+    host: true,
     allowedHosts: true,
-    proxy: {
-      '/health': 'http://127.0.0.1:8000',
-      '/transcribe': 'http://127.0.0.1:8000',
-      '/models': 'http://127.0.0.1:8000',
-    },
+    proxy: backendProxy,
   },
   preview: {
+    host: true,
     allowedHosts: true,
-    proxy: {
-      '/health': 'http://127.0.0.1:8000',
-      '/transcribe': 'http://127.0.0.1:8000',
-      '/models': 'http://127.0.0.1:8000',
-    },
+    proxy: backendProxy,
   },
   build: {
-    target: 'esnext',
-    assetsInlineLimit: 100000000,
-    chunkSizeWarningLimit: 100000000,
-    cssCodeSplit: false,
+    target: ['es2020', 'safari15', 'chrome90', 'firefox90'],
+    ...(isSingleFile
+      ? {
+          assetsInlineLimit: 100000000,
+          chunkSizeWarningLimit: 100000000,
+          cssCodeSplit: false,
+        }
+      : {
+          sourcemap: false,
+          cssCodeSplit: true,
+        }),
   },
-})
+});
