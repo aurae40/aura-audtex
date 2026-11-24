@@ -41,10 +41,10 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/audio/') ||
     url.pathname.endsWith('/health') ||
     url.pathname.endsWith('/models') ||
-    url.pathname.includes('/transcribe') ||
     url.pathname.endsWith('/llm-status') ||
     url.pathname.endsWith('/analyze') ||
-    url.pathname.endsWith('/ask')
+    url.pathname.endsWith('/ask') ||
+    url.pathname.includes('/transcribe')
   ) {
     return;
   }
