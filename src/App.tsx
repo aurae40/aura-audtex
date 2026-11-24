@@ -784,9 +784,9 @@ export function App() {
         (state) => {
           setLiveRecordingDuration(state.durationSec);
           setIsLivePaused(state.isPaused);
-          setLiveFlaggedMoments(state.flaggedMoments);
-          setIsLiveStreamingWhisper(state.isStreamingWhisper);
-          setIsLiveWakeLockActive(state.wakeLockActive);
+          setLiveFlaggedMoments(state.flaggedMoments || state.bookmarks || []);
+          setIsLiveStreamingWhisper(Boolean(state.isStreamingWhisper));
+          setIsLiveWakeLockActive(Boolean(state.wakeLockActive));
           setLiveCurrentSpeaker(state.currentSpeaker);
           setLiveCurrentPitchHz(state.currentPitchHz);
           setLiveWordCount(state.wordCount);
@@ -910,19 +910,26 @@ export function App() {
       setChapterTitle('Live Transcript & Speaker Diarization');
 
       // Convert flagged moments to session reflections so they're searchable and highlighted
-      const flaggedReflections: UserReflection[] = flagged.map((f) => ({
-        id: f.id,
-        sessionId: liveSessionId,
-        audioId: liveSessionId,
-        timestampSec: f.timestampSec,
-        timeFormatted: f.timeFormatted,
-        pageNumber: 1,
-        highlightedQuote: `Live Flagged Insight at ${f.timeFormatted}`,
-        annotationText: f.label,
-        tag: 'insight',
-        color: '#f59e0b',
-        createdAt: new Date().toISOString(),
-      }));
+      const flaggedReflections: UserReflection[] = flagged.map((f) => {
+        const timeFmt =
+          f.timeFormatted ||
+          `${Math.floor(f.timestampSec / 60)}:${Math.floor(f.timestampSec % 60)
+            .toString()
+            .padStart(2, '0')}`;
+        return {
+          id: f.id,
+          sessionId: liveSessionId,
+          audioId: liveSessionId,
+          timestampSec: f.timestampSec,
+          timeFormatted: timeFmt,
+          pageNumber: 1,
+          highlightedQuote: `Live Flagged Insight at ${timeFmt}`,
+          annotationText: f.label,
+          tag: 'insight',
+          color: '#f59e0b',
+          createdAt: new Date().toISOString(),
+        };
+      });
 
       if (flaggedReflections.length > 0) {
         setAllReflections((prev) => ({
@@ -1020,8 +1027,13 @@ export function App() {
     if (liveEngineRef.current && isLiveRecording) {
       const flag = liveEngineRef.current.flagMoment(label);
       setLiveFlaggedMoments(liveEngineRef.current.getFlaggedMoments());
+      const timeFmt =
+        flag.timeFormatted ||
+        `${Math.floor(flag.timestampSec / 60)}:${Math.floor(flag.timestampSec % 60)
+          .toString()
+          .padStart(2, '0')}`;
       setToastNotification({
-        message: `⭐ Flagged insight at ${flag.timeFormatted}!`,
+        message: `⭐ Flagged insight at ${timeFmt}!`,
         type: 'info',
       });
     }

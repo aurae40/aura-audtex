@@ -314,7 +314,7 @@ export const LiveMeetingModal: React.FC<LiveMeetingModalProps> = ({
                           {flag.label}
                         </span>
                         <span className="font-mono text-[10px] text-amber-600 dark:text-amber-400 font-bold ml-2 shrink-0">
-                          {flag.timeFormatted}
+                          {flag.timeFormatted || formatMMSS(flag.timestampSec)}
                         </span>
                       </div>
                     ))}
