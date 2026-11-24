@@ -736,96 +736,6 @@ async def transcribe_audio(
                 pass
 
 
-@app.post("/transcribe-chunk")
-async def transcribe_chunk_endpoint(
-    request: Request,
-    file: UploadFile = File(...),
-    offset_sec: float = Query(0.0),
-    model_size: str = Query("tiny", pattern="^(tiny|base|small)$"),
-    language: Optional[str] = Query(None),
-    initial_prompt: Optional[str] = Query(None, max_length=600),
-    authorization: Optional[str] = Header(None),
-):
-    """
-    Ultra-low-latency 6-second streaming audio chunk transcription endpoint.
-    Designed for real-time live meeting & lecture illumination across all browsers.
-    """
-    client_ip = request.client.host if request.client else "127.0.0.1"
-    enforce_chunk_rate_limit(client_ip)
-
-    required_token = os.environ.get("AURA_AUTH_TOKEN")
-    if required_token and authorization != f"Bearer {required_token}":
-        raise HTTPException(status_code=401, detail="Unauthorized: invalid or missing audio engine token.")
-
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No audio chunk uploaded.")
-
-    suffix = os.path.splitext(file.filename)[1].lower() or ".wav"
-    if suffix not in ALLOWED_AUDIO_EXTENSIONS:
-        suffix = ".wav"
-
-    model = get_whisper_model(model_size)
-    if not model:
-        raise HTTPException(status_code=503, detail=f"Whisper model '{model_size}' could not be initialized.")
-
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp_path = tmp.name
-            while chunk := await file.read(256 * 1024):
-                tmp.write(chunk)
-
-        def _run_chunk_sync():
-            segments_gen, info_obj = model.transcribe(
-                tmp_path,
-                word_timestamps=True,
-                beam_size=1,
-                best_of=1,
-                vad_filter=True,
-                vad_parameters=dict(
-                    min_silence_duration_ms=250,
-                    speech_pad_ms=150,
-                    threshold=0.45,
-                ),
-                temperature=0.0,
-                condition_on_previous_text=False,
-                language=language if language and language != "auto" else None,
-                initial_prompt=initial_prompt.strip() if initial_prompt and initial_prompt.strip() else None,
-            )
-            return list(segments_gen), info_obj
-
-        segments, info = await asyncio.to_thread(_run_chunk_sync)
-        raw_tokens = segments_to_tokens(segments)
-
-        tokens = []
-        for t in raw_tokens:
-            tokens.append({
-                "word": t["word"],
-                "start": round(t["start"] + offset_sec, 2),
-                "end": round(t["end"] + offset_sec, 2),
-                "index": t["index"],
-            })
-
-        full_text = " ".join(t["word"] for t in tokens)
-
-        return {
-            "status": "ok",
-            "text": full_text,
-            "tokens": tokens,
-            "offsetSec": offset_sec,
-            "language": info.language if info else (language or "en"),
-            "languageProbability": round(info.language_probability, 3) if info else 1.0,
-        }
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"Chunk transcription error: {exc}")
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except Exception:
-                pass
-
-
 class TranscribeUrlRequest(BaseModel):
     url: str
     model_size: Optional[str] = "tiny"
@@ -1052,6 +962,91 @@ async def ask_audio_endpoint(
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Local Ollama Q&A unavailable: {exc}") from exc
+
+
+@app.post("/transcribe-chunk")
+async def transcribe_live_chunk(
+    file: UploadFile = File(...),
+    model_size: str = Query("tiny", pattern="^(tiny|base|small)$"),
+    language: Optional[str] = Query(None),
+    initial_prompt: Optional[str] = Query(None, max_length=600),
+    offset_sec: float = Query(0.0, ge=0.0),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Ultra-low-latency endpoint for Live Meeting & Lecture rolling 6-second WAV chunks.
+    Enables live streaming word-level transcription on iPhone Safari, Android, and Firefox.
+    """
+    required_token = os.environ.get("AURA_AUTH_TOKEN")
+    if required_token and authorization != f"Bearer {required_token}":
+        raise HTTPException(status_code=401, detail="Unauthorized: invalid or missing engine token.")
+
+    model = get_whisper_model(model_size)
+    if not model:
+        raise HTTPException(status_code=503, detail=f"Whisper model '{model_size}' unavailable.")
+
+    tmp_path = None
+    try:
+        raw_bytes = await file.read()
+        if len(raw_bytes) < 1000:
+            return {"tokens": [], "text": ""}
+        if len(raw_bytes) > 15 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Live chunk exceeds 15 MB limit.")
+
+        suffix = os.path.splitext(file.filename or "chunk.wav")[1].lower() or ".wav"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = tmp.name
+            tmp.write(raw_bytes)
+
+        def _run_fast_chunk():
+            segs, info_obj = model.transcribe(
+                tmp_path,
+                word_timestamps=True,
+                beam_size=1,
+                best_of=1,
+                vad_filter=True,
+                vad_parameters=dict(
+                    min_silence_duration_ms=300,
+                    speech_pad_ms=150,
+                    threshold=0.45,
+                ),
+                condition_on_previous_text=False,
+                temperature=0.0,
+                no_speech_threshold=0.65,
+                language=language if (language and language != "auto") else None,
+                initial_prompt=initial_prompt.strip() if (initial_prompt and initial_prompt.strip()) else None,
+            )
+            return list(segs), info_obj
+
+        async with CONCURRENCY_SEMAPHORE:
+            segments, info = await asyncio.to_thread(_run_fast_chunk)
+
+        raw_tokens = segments_to_tokens(segments)
+        shifted_tokens = [
+            {
+                "word": t["word"],
+                "start": round(offset_sec + t["start"], 2),
+                "end": round(offset_sec + t["end"], 2),
+                "index": t["index"],
+            }
+            for t in raw_tokens
+        ]
+
+        return {
+            "tokens": shifted_tokens,
+            "text": " ".join(t["word"] for t in shifted_tokens),
+            "language": info.language,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Live chunk decode error: {exc}") from exc
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
 
 
 # Serve production frontend so mobile devices on LAN can open http://<LAN_IP>:8000/
