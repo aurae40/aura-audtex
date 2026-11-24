@@ -29,6 +29,9 @@ app = FastAPI(
 AUDIO_CACHE_DIR = os.path.join(tempfile.gettempdir(), "aura_audio_cache")
 os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
+# Path to compiled frontend distribution
+DIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dist")
+
 
 @app.get("/audio/{filename}")
 async def serve_cached_audio(filename: str):
@@ -417,6 +420,9 @@ def segments_to_tokens(segments: List[Any]) -> List[Dict[str, Any]]:
 
 @app.get("/")
 def root():
+    index_path = os.path.join(DIST_DIR, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path, media_type="text/html")
     hw = get_hardware_info()
     return {
         "app": "AuRA_AuDTEX Local Python Transcriber Engine",
@@ -426,6 +432,26 @@ def root():
         "compute_type": hw["compute_type"],
         "endpoints": {
             "health": "/health",
+            "api": "/api",
+            "transcribe": "/transcribe",
+            "transcribe_url": "/transcribe-url",
+            "models": "/models",
+        },
+    }
+
+
+@app.get("/api")
+def api_info():
+    hw = get_hardware_info()
+    return {
+        "app": "AuRA_AuDTEX Local Python Transcriber Engine",
+        "status": "online",
+        "hardware": hw["display_name"],
+        "device": hw["device"],
+        "compute_type": hw["compute_type"],
+        "endpoints": {
+            "health": "/health",
+            "api": "/api",
             "transcribe": "/transcribe",
             "transcribe_url": "/transcribe-url",
             "models": "/models",
@@ -807,11 +833,10 @@ async def transcribe_url_endpoint(
 
 
 # Serve production frontend so mobile devices on LAN can open http://<LAN_IP>:8000/
-dist_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dist")
-if os.path.isdir(dist_dir):
+if os.path.isdir(DIST_DIR):
     from fastapi.staticfiles import StaticFiles
 
-    app.mount("/", StaticFiles(directory=dist_dir, html=True), name="static")
+    app.mount("/", StaticFiles(directory=DIST_DIR, html=True), name="static")
 
 
 if __name__ == "__main__":
